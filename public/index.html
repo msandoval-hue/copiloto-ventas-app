@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copiloto de Ventas</title>
+<style>
+  :root { --bg:#f4f6f8; --card:#fff; --brand:#0b5fff; --ink:#1b2430; --mute:#6b7787; --me:#dce8ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); height:100dvh; display:flex; flex-direction:column; }
+  header { background:var(--brand); color:#fff; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { font-size:17px; margin:0; }
+  header button { background:rgba(255,255,255,.2); border:0; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; }
+  #chat { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width:88%; padding:10px 12px; border-radius:12px; line-height:1.45; white-space:pre-wrap; background:var(--card); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .me { align-self:flex-end; background:var(--me); }
+  .bot { align-self:flex-start; }
+  .bot blockquote { margin:8px 0; padding:8px 10px; background:#f1f7ee; border-left:4px solid #3aa655; border-radius:4px; position:relative; }
+  .copy { display:inline-block; margin-top:4px; font-size:12px; background:#fff; border:1px solid #cfd6df; border-radius:6px; padding:2px 8px; cursor:pointer; color:var(--mute); }
+  #chips { display:flex; gap:8px; flex-wrap:wrap; padding:0 14px 8px; }
+  #chips button { background:#fff; border:1px solid #cfd6df; border-radius:16px; padding:6px 12px; cursor:pointer; font-size:13px; }
+  form { display:flex; gap:8px; padding:10px; background:#fff; border-top:1px solid #e1e6ec; }
+  textarea { flex:1; resize:none; border:1px solid #cfd6df; border-radius:10px; padding:10px; font:inherit; max-height:120px; }
+  form button { background:var(--brand); color:#fff; border:0; border-radius:10px; padding:0 18px; font-weight:600; cursor:pointer; }
+  form button:disabled { opacity:.5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚗 Copiloto de Ventas</h1>
+  <button id="reset">Nueva consulta</button>
+</header>
+<div id="chat"></div>
+<div id="chips">
+  <button>Un cliente no me responde, ¿qué le escribo?</button>
+  <button>Cliente que no vuelve al concesionario</button>
+  <button>Retomar un cliente de hace más de 30 días</button>
+</div>
+<form id="f">
+  <textarea id="t" rows="1" placeholder="Cuéntame tu situación con el cliente..."></textarea>
+  <button id="send">Enviar</button>
+</form>
+
+<script>
+const chat = document.getElementById("chat");
+const t = document.getElementById("t");
+const send = document.getElementById("send");
+let history = JSON.parse(sessionStorage.getItem("h") || "[]");
+let pin = sessionStorage.getItem("pin") || "";
+
+function esc(s){ return s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+function render(role, text) {
+  const d = document.createElement("div");
+  d.className = "msg " + (role === "user" ? "me" : "bot");
+  if (role === "user") { d.textContent = text; }
+  else {
+    // Convierte bloques "> mensaje" en cajas copiables y **negritas**
+    const lines = esc(text).split("\n");
+    let html = "", quote = [];
+    const flush = () => { if (quote.length) { html += `<blockquote>${quote.join("\n")}</blockquote><span class="copy">Copiar</span>`; quote = []; } };
+    for (const l of lines) {
+      if (l.startsWith("&gt;")) quote.push(l.replace(/^&gt;\s?/, ""));
+      else { flush(); html += l + "\n"; }
+    }
+    flush();
+    d.innerHTML = html.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    d.querySelectorAll(".copy").forEach(b => b.onclick = () => {
+      navigator.clipboard.writeText(b.previousElementSibling.innerText);
+      b.textContent = "Copiado ✓"; setTimeout(() => b.textContent = "Copiar", 1500);
+    });
+  }
+  chat.appendChild(d); chat.scrollTop = chat.scrollHeight;
+  return d;
+}
+
+async function ask(text) {
+  history.push({ role: "user", content: text });
+  render("user", text);
+  document.getElementById("chips").style.display = "none";
+  send.disabled = true;
+  const wait = render("assistant", "Pensando…");
+  try {
+    const r = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-pin": pin },
+      body: JSON.stringify({ messages: history })
+    });
+    if (r.status === 401) {
+      pin = prompt("PIN de acceso:") || "";
+      sessionStorage.setItem("pin", pin);
+      wait.remove(); history.pop(); chat.lastChild.remove(); send.disabled = false;
+      return ask(text);
+    }
+    const j = await r.json();
+    wait.remove();
+    if (j.error) { render("assistant", "⚠️ " + j.error); history.pop(); }
+    else { history.push({ role: "assistant", content: j.reply }); render("assistant", j.reply); }
+  } catch { wait.remove(); render("assistant", "⚠️ Sin conexión. Intenta de nuevo."); history.pop(); }
+  sessionStorage.setItem("h", JSON.stringify(history));
+  send.disabled = false; t.focus();
+}
+
+document.getElementById("f").onsubmit = e => {
+  e.preventDefault();
+  const v = t.value.trim(); if (!v || send.disabled) return;
+  t.value = ""; ask(v);
+};
+t.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); document.getElementById("f").requestSubmit(); } };
+document.querySelectorAll("#chips button").forEach(b => b.onclick = () => ask(b.textContent));
+document.getElementById("reset").onclick = () => { history = []; sessionStorage.removeItem("h"); location.reload(); };
+
+if (history.length) { document.getElementById("chips").style.display = "none"; history.forEach(m => render(m.role, m.content)); }
+else render("assistant", "Hola, soy tu copiloto de ventas. Cuéntame qué pasa con tu cliente y te armo el mensaje para avanzar.");
+</script>
+</body>
+</html>

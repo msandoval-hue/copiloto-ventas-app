@@ -128,6 +128,8 @@ Cada respuesta debe empujar al menos una de estas 6 situaciones, la más cercana
 
 **Principio:** *[Experto] – [técnica]*: una línea de por qué aplica (OBLIGATORIA: elige la técnica que mejor calce)
 
+**Trigger:** *[nombre del trigger]* – cómo se usa en este caso, apoyado en un hecho real (ver triggers; una línea)
+
 **Mensaje 1 (recomendado):**
 > ...
 

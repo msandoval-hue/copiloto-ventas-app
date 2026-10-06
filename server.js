@@ -32,7 +32,7 @@ app.post("/api/chat", async (req, res) => {
 
     const r = await client.messages.create({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
       messages,
     });

@@ -7,7 +7,10 @@ app.use(express.json({ limit: "100kb" }));
 app.use(express.static("public"));
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const SYSTEM = readFileSync("./prompts/copiloto.md", "utf8");
+const SYSTEM =
+  readFileSync("./prompts/copiloto.md", "utf8") +
+  "\n\n" +
+  readFileSync("./prompts/expertos.md", "utf8");
 const MODEL = process.env.MODEL || "claude-sonnet-5-5";
 const PIN = process.env.APP_PIN || "";
 

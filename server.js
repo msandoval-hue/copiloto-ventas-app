@@ -7,10 +7,25 @@ app.use(express.json({ limit: "100kb" }));
 app.use(express.static("public"));
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const SYSTEM =
-  readFileSync("./prompts/copiloto.md", "utf8") +
-  "\n\n" +
-  readFileSync("./prompts/expertos.md", "utf8");
+// Carga el cerebro del agente: copiloto.md es obligatorio; los demás archivos
+// de prompts/ son opcionales (si falta uno, la app arranca igual).
+function leer(ruta, obligatorio = false) {
+  try {
+    return readFileSync(ruta, "utf8");
+  } catch (e) {
+    if (obligatorio) throw e;
+    console.warn("Aviso: no se encontró " + ruta);
+    return "";
+  }
+}
+const SYSTEM = [
+  leer("./prompts/copiloto.md", true),
+  leer("./prompts/expertos.md"),
+  leer("./prompts/mercado.md"),
+  leer("./prompts/triggers.md"),
+]
+  .filter(Boolean)
+  .join("\n\n");
 const MODEL = process.env.MODEL || "claude-sonnet-5-5";
 const PIN = process.env.APP_PIN || "";
 

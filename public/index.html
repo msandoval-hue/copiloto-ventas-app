@@ -111,7 +111,7 @@ document.querySelectorAll("#chips button").forEach(b => b.onclick = () => ask(b.
 document.getElementById("reset").onclick = () => { history = []; sessionStorage.removeItem("h"); location.reload(); };
 
 if (history.length) { document.getElementById("chips").style.display = "none"; history.forEach(m => render(m.role, m.content)); }
-else render("assistant", "Hola, soy tu copiloto de ventas. Cuéntame qué pasa con tu cliente y te armo el mensaje para avanzar.");
+else render("assistant", "Hola, soy tu copiloto de ventas. Cuéntame qué pasa con tu cliente y te armo el mensaje y la mejor acción para avanzar.\n\n📌 Metas de hoy (lo de hoy es fruto de la disciplina de ayer):\n• 5 citas programadas\n• 3 citas efectivas\n• Test drives, reservas y solicitudes de crédito\n• Walk-in: atiéndelo bien y dale seguimiento en 24 h\n\n¿En qué palanca vas hoy?");
 </script>
 </body>
 </html>

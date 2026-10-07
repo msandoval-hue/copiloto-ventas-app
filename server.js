@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "fs";
 import { pathToFileURL } from "url";
+import { registrarAdmin } from "./admin.js";
 
 const TZ = "America/Guayaquil";
 
@@ -123,12 +124,35 @@ function crearContexto(admin) {
     return { texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre };
   }
 
-  return async function contextoEmpresa(empresaId) {
-    const hit = cache.get(empresaId);
-    if (hit && Date.now() - hit.t < 60_000) return hit.v;
-    const v = await construir(empresaId);
-    cache.set(empresaId, { t: Date.now(), v });
-    return v;
+  return {
+    async obtener(empresaId) {
+      const hit = cache.get(empresaId);
+      if (hit && Date.now() - hit.t < 60_000) return hit.v;
+      const v = await construir(empresaId);
+      cache.set(empresaId, { t: Date.now(), v });
+      return v;
+    },
+    invalidar: () => cache.clear(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Conocimiento global (metodologías, expertos, mercado, triggers...): vive en la
+// tabla "conocimiento" y lo edita el administrador. Si la tabla está vacía o no
+// existe aún, se usan los archivos de prompts/ como respaldo.
+// ---------------------------------------------------------------------------
+function crearBase(admin, respaldo) {
+  let cache = null;
+  return {
+    async obtener() {
+      if (cache && Date.now() - cache.t < 60_000) return cache.v;
+      const { data, error } = await admin.from("conocimiento").select("contenido").eq("activo", true).order("orden");
+      const texto = !error && data?.length ? data.map((d) => d.contenido).join("\n\n") : "";
+      const v = texto.trim() ? texto : respaldo;
+      cache = { t: Date.now(), v };
+      return v;
+    },
+    invalidar: () => (cache = null),
   };
 }
 
@@ -155,7 +179,9 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
   app.set("trust proxy", 1);
   app.use(express.json({ limit: "100kb" }));
   app.use(express.static("public"));
-  const contextoEmpresa = crearContexto(admin);
+  const empresas = crearContexto(admin);
+  const conocimiento = crearBase(admin, base);
+  const contextoEmpresa = (id) => empresas.obtener(id);
 
   // --- freno simple a intentos de login por IP (15 min) ---
   const intentos = new Map();
@@ -234,6 +260,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
       const out = {
         nombre: p.nombre,
         rol: p.rol,
+        descripcion: p.descripcion || "",
         empresa: ctx ? { id: empresaId, nombre: ctx.nombre } : null,
         usadas: uso?.consultas || 0,
         limite: p.rol === "admin" ? null : p.limite_diario ?? ctx?.limiteDefault ?? 20,
@@ -248,6 +275,17 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
       res.status(500).json({ error: "Error al cargar tu perfil" });
     }
   });
+
+  // Cada usuario puede escribir/editar su propia descripción (personalidad y forma de gestionar)
+  app.patch("/api/me/perfil", auth, async (req, res) => {
+    const d = typeof req.body?.descripcion === "string" ? req.body.descripcion.trim().slice(0, 1500) : null;
+    if (d === null) return res.status(400).json({ error: "Falta la descripción" });
+    const { error } = await admin.from("perfiles").update({ descripcion: d || null }).eq("id", req.perfil.id);
+    if (error) return res.status(500).json({ error: "No se pudo guardar" });
+    res.json({ ok: true });
+  });
+
+  registrarAdmin(app, { admin, auth, invalidarEmpresas: empresas.invalidar, invalidarBase: conocimiento.invalidar });
 
   app.post("/api/chat", auth, async (req, res) => {
     const p = req.perfil;
@@ -296,7 +334,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
           model,
           max_tokens: 2048,
           system: [
-            { type: "text", text: base, cache_control: { type: "ephemeral" } },
+            { type: "text", text: await conocimiento.obtener(), cache_control: { type: "ephemeral" } },
             { type: "text", text: ctx.texto, cache_control: { type: "ephemeral" } },
             { type: "text", text: bloqueVendedor(p, sucursal) },
           ],

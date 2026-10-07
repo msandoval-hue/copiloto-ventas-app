@@ -23,6 +23,7 @@ const SYSTEM = [
   leer("./prompts/expertos.md"),
   leer("./prompts/mercado.md"),
   leer("./prompts/triggers.md"),
+  leer("./prompts/practicas.md"),
 ]
   .filter(Boolean)
   .join("\n\n");

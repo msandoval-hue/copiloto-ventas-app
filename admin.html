@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Administración · Copiloto de Ventas</title>
+<style>
+  :root { --bg:#f4f6f8; --card:#fff; --brand:#0b5fff; --ink:#1b2430; --mute:#6b7787; --line:#e1e6ec; --ok:#1f8a4c; --bad:#c0392b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:var(--brand); color:#fff; padding:10px 16px; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; }
+  header a, header button { background:rgba(255,255,255,.2); border:0; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; font:inherit; font-size:13px; text-decoration:none; }
+  nav { display:flex; gap:4px; padding:10px 16px 0; flex-wrap:wrap; }
+  nav button { background:#e9eef5; border:0; padding:8px 14px; border-radius:8px 8px 0 0; cursor:pointer; font:inherit; color:var(--mute); }
+  nav button.on { background:var(--card); color:var(--ink); font-weight:600; }
+  main { background:var(--card); margin:0 16px 24px; padding:16px; border-radius:0 8px 8px 8px; box-shadow:0 1px 3px rgba(0,0,0,.08); min-height:60vh; }
+  h2 { margin:0 0 12px; font-size:18px; } h3 { margin:16px 0 8px; font-size:15px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mute); font-weight:600; font-size:12px; }
+  tr.click { cursor:pointer; } tr.click:hover { background:#f6f9ff; }
+  .tablewrap { overflow-x:auto; }
+  button.p, button.s, button.d { border:0; border-radius:8px; padding:8px 14px; cursor:pointer; font:inherit; font-size:14px; }
+  button.p { background:var(--brand); color:#fff; } button.s { background:#e9eef5; color:var(--ink); } button.d { background:#fbe9e7; color:var(--bad); }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--mute); }
+  input, select, textarea { border:1px solid #cfd6df; border-radius:8px; padding:8px; font:inherit; font-size:14px; color:var(--ink); background:#fff; width:100%; }
+  textarea { resize:vertical; }
+  .panel { border:1px solid var(--line); border-radius:10px; padding:14px; margin:12px 0; background:#fbfcfe; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:#e9eef5; }
+  .tag.ok { background:#dff3e3; color:var(--ok); } .tag.bad { background:#fbe9e7; color:var(--bad); } .tag.adm { background:#e5ecff; color:var(--brand); }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:#e9eef5; border-radius:14px; padding:3px 6px 3px 10px; margin:2px; font-size:13px; }
+  .chip button { border:0; background:transparent; cursor:pointer; color:var(--bad); font-size:15px; }
+  #msg { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#1b2430; color:#fff; padding:10px 16px; border-radius:8px; display:none; max-width:90vw; z-index:20; }
+  #msg.err { background:var(--bad); }
+  .mut { color:var(--mute); font-size:13px; }
+  pre.txt { white-space:pre-wrap; background:#f4f6f8; border-radius:6px; padding:8px; margin:4px 0; font:inherit; font-size:13px; max-height:260px; overflow:auto; }
+  #login { position:fixed; inset:0; background:var(--bg); display:none; align-items:center; justify-content:center; padding:16px; z-index:10; }
+  #login form { background:#fff; border-radius:14px; box-shadow:0 4px 18px rgba(0,0,0,.12); padding:24px; width:100%; max-width:340px; display:flex; flex-direction:column; gap:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚙️ Administración · Copiloto de Ventas</h1>
+  <div><a href="/">← Volver al copiloto</a> <button id="salir">Salir</button></div>
+</header>
+<nav id="tabs">
+  <button data-t="usuarios" class="on">Usuarios</button>
+  <button data-t="empresas">Empresas</button>
+  <button data-t="conocimiento">Conocimiento global</button>
+  <button data-t="consultas">Consultas</button>
+</nav>
+<main id="main">Cargando…</main>
+<div id="msg"></div>
+<div id="login"><form id="lf">
+  <h2>Administración</h2>
+  <input id="le" type="email" placeholder="Correo" autocomplete="username" required>
+  <input id="lp" type="password" placeholder="Clave" autocomplete="current-password" required>
+  <div id="lerr" style="color:#c0392b;font-size:13px"></div>
+  <button class="p" id="lb">Ingresar</button>
+</form></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let tab = "usuarios", empresas = [], usuarios = [], conocimiento = [], yo = null;
+
+// ---------- sesión ----------
+const getSess = () => { try { return JSON.parse(localStorage.getItem("sess") || "null"); } catch { return null; } };
+const setSess = (s) => { try { s ? localStorage.setItem("sess", JSON.stringify(s)) : localStorage.removeItem("sess"); } catch {} };
+async function refrescar() {
+  const s = getSess(); if (!s?.refresh_token) return false;
+  try { const r = await fetch("/api/refresh", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ refresh_token: s.refresh_token }) });
+    if (!r.ok) return false; setSess(await r.json()); return true; } catch { return false; }
+}
+async function api(path, opts = {}, reintento = true) {
+  const s = getSess();
+  const r = await fetch(path, { ...opts, headers: { "Content-Type":"application/json", Authorization: "Bearer " + (s?.access_token || "") }, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  if (r.status === 401 && reintento && await refrescar()) return api(path, opts, false);
+  if (r.status === 401) { $("login").style.display = "flex"; throw new Error("Sesión vencida"); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || "Error");
+  return j;
+}
+function aviso(t, err) { const m = $("msg"); m.textContent = t; m.className = err ? "err" : ""; m.style.display = "block"; clearTimeout(aviso.t); aviso.t = setTimeout(() => m.style.display = "none", err ? 6000 : 2500); }
+const act = async (fn) => { try { await fn(); } catch (e) { aviso(e.message, true); } };
+
+$("lf").onsubmit = (e) => { e.preventDefault(); act(async () => {
+  const r = await fetch("/api/login", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ email: $("le").value, password: $("lp").value }) });
+  const j = await r.json(); if (!r.ok) { $("lerr").textContent = j.error || "No se pudo ingresar"; return; }
+  setSess(j); $("lp").value = ""; $("login").style.display = "none"; iniciar();
+}); };
+$("salir").onclick = () => { setSess(null); location.href = "/"; };
+$("tabs").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; tab = b.dataset.t;
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b)); pintar(); };
+
+async function iniciar() {
+  await act(async () => {
+    yo = await api("/api/me");
+    if (yo.rol !== "admin") { $("main").innerHTML = "<p>Solo el administrador puede ver esta página.</p>"; return; }
+    pintar();
+  });
+}
+const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, consultas: vConsultas })[tab]();
+const optEmp = (sel) => '<option value="">— Sin empresa —</option>' + empresas.map(e => `<option value="${e.id}" ${e.id === sel ? "selected" : ""}>${esc(e.nombre)}</option>`).join("");
+const nomEmp = (id) => empresas.find(e => e.id === id)?.nombre || "—";
+const nomSuc = (id) => { for (const e of empresas) { const s = e.sucursales.find(x => x.id === id); if (s) return s.nombre; } return "—"; };
+
+// ======================= USUARIOS =======================
+async function vUsuarios() {
+  await act(async () => {
+    [empresas, usuarios] = await Promise.all([api("/api/admin/empresas"), api("/api/admin/usuarios")]);
+    $("main").innerHTML = `<h2>Usuarios</h2>
+      <div class="row"><button class="p" id="nuevoU">+ Nuevo usuario</button><span class="mut">Haz clic en una fila para editar. El límite diario vacío usa el de la empresa; 0 bloquea.</span></div>
+      <div id="formU"></div>
+      <div class="tablewrap"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Empresa</th><th>Sucursal</th><th>Límite/día</th><th>Hoy</th><th>Estado</th></tr></thead><tbody>
+      ${usuarios.map(u => `<tr class="click" data-id="${u.id}"><td>${esc(u.nombre)}</td><td>${esc(u.email || "—")}</td>
+        <td><span class="tag ${u.rol === "admin" ? "adm" : ""}">${u.rol}</span></td><td>${esc(nomEmp(u.empresa_id))}</td><td>${esc(nomSuc(u.sucursal_id))}</td>
+        <td>${u.rol === "admin" ? "sin límite" : u.limite_diario ?? "<span class='mut'>empresa</span>"}</td>
+        <td>${u.hoy}${u.bloqueadas_hoy ? ` <span class="tag bad">${u.bloqueadas_hoy} bloq.</span>` : ""}</td>
+        <td><span class="tag ${u.activo ? "ok" : "bad"}">${u.activo ? "activo" : "inactivo"}</span></td></tr>`).join("")}
+      </tbody></table></div>`;
+    $("nuevoU").onclick = () => formUsuario(null);
+    document.querySelectorAll("#main tr.click").forEach(tr => tr.onclick = () => formUsuario(usuarios.find(u => u.id === tr.dataset.id)));
+  });
+}
+function formUsuario(u) {
+  const nuevo = !u; u = u || { rol: "vendedor", activo: true };
+  $("formU").innerHTML = `<div class="panel"><h3 style="margin-top:0">${nuevo ? "Nuevo usuario" : "Editar: " + esc(u.nombre)}</h3>
+    <div class="grid">
+      ${nuevo ? `<label>Correo<input id="u_email" type="email"></label>` : `<label>Correo<input value="${esc(u.email || "")}" disabled></label>`}
+      <label>${nuevo ? "Clave (mín. 8 caracteres)" : "Nueva clave (vacío = no cambiar)"}<input id="u_pass" type="text" autocomplete="off"></label>
+      <label>Nombre<input id="u_nombre" value="${esc(u.nombre || "")}"></label>
+      <label>Rol<select id="u_rol"><option value="vendedor" ${u.rol === "vendedor" ? "selected" : ""}>Vendedor</option><option value="admin" ${u.rol === "admin" ? "selected" : ""}>Administrador</option></select></label>
+      <label>Empresa<select id="u_emp">${optEmp(u.empresa_id)}</select></label>
+      <label>Sucursal<select id="u_suc"></select></label>
+      <label>Límite de consultas por día<input id="u_lim" type="number" min="0" placeholder="vacío = el de la empresa" value="${u.limite_diario ?? ""}"></label>
+      <label>Estado<select id="u_act"><option value="1" ${u.activo ? "selected" : ""}>Activo</option><option value="0" ${!u.activo ? "selected" : ""}>Inactivo (sin acceso)</option></select></label>
+    </div>
+    <label style="margin-top:10px">Descripción del vendedor (personalidad, forma de gestionar, fortalezas y hábitos a mejorar)<textarea id="u_desc" rows="4" maxlength="1500">${esc(u.descripcion || "")}</textarea></label>
+    <div class="row"><button class="p" id="u_ok">Guardar</button><button class="s" id="u_no">Cancelar</button></div></div>`;
+  const pintarSuc = () => { const e = empresas.find(x => x.id === $("u_emp").value);
+    $("u_suc").innerHTML = '<option value="">— Sin sucursal —</option>' + (e ? e.sucursales.map(s => `<option value="${s.id}" ${s.id === u.sucursal_id ? "selected" : ""}>${esc(s.nombre)} (${esc(s.ciudad)})</option>`).join("") : ""); };
+  pintarSuc(); $("u_emp").onchange = () => { u.sucursal_id = null; pintarSuc(); };
+  $("u_no").onclick = () => $("formU").innerHTML = "";
+  $("u_ok").onclick = () => act(async () => {
+    const body = { nombre: $("u_nombre").value, rol: $("u_rol").value, empresa_id: $("u_emp").value || null, sucursal_id: $("u_suc").value || null,
+      limite_diario: $("u_lim").value === "" ? null : Number($("u_lim").value), activo: $("u_act").value === "1", descripcion: $("u_desc").value };
+    if (nuevo) { body.email = $("u_email").value; body.password = $("u_pass").value; await api("/api/admin/usuarios", { method: "POST", body }); aviso("Usuario creado ✓"); }
+    else { if ($("u_pass").value) body.password = $("u_pass").value; await api("/api/admin/usuarios/" + u.id, { method: "PATCH", body }); aviso("Cambios guardados ✓"); }
+    vUsuarios();
+  });
+  $("formU").scrollIntoView({ behavior: "smooth" });
+}
+
+// ======================= EMPRESAS =======================
+async function vEmpresas() {
+  await act(async () => {
+    empresas = await api("/api/admin/empresas");
+    $("main").innerHTML = `<h2>Empresas</h2><div class="row"><button class="p" id="nuevaE">+ Nueva empresa</button></div><div id="formE"></div>
+      ${empresas.map(e => `<div class="panel" data-e="${e.id}"><h3 style="margin-top:0">${esc(e.nombre)} ${e.activa ? "" : '<span class="tag bad">inactiva</span>'}</h3>
+        <div class="grid">
+          <label>Nombre<input class="e_nombre" value="${esc(e.nombre)}"></label>
+          <label>Tono de comunicación<input class="e_tono" value="${esc(e.tono || "")}" placeholder="ej. profesional y cercano, trato de usted"></label>
+          <label>Límite diario por defecto (por vendedor)<input class="e_lim" type="number" min="0" value="${e.limite_diario_default}"></label>
+          <label>Estado<select class="e_act"><option value="1" ${e.activa ? "selected" : ""}>Activa</option><option value="0" ${!e.activa ? "selected" : ""}>Inactiva</option></select></label>
+        </div>
+        <label style="margin-top:10px">Descripción (quién es, posicionamiento, cultura; el agente la usa)<textarea class="e_desc" rows="3">${esc(e.descripcion || "")}</textarea></label>
+        <div class="row"><button class="p e_save">Guardar empresa</button></div>
+        <h3>Sucursales</h3>
+        <div>${e.sucursales.map(s => `<span class="chip">${esc(s.nombre)} · ${esc(s.ciudad)}<button class="s_del" data-id="${s.id}" title="Eliminar">×</button></span>`).join("") || '<span class="mut">Sin sucursales</span>'}</div>
+        <div class="row"><input class="s_nom" placeholder="Nombre sucursal" style="max-width:200px"><input class="s_ciu" placeholder="Ciudad" style="max-width:160px"><button class="s s_add">Agregar</button></div>
+        <h3>Marcas que representa</h3>
+        <div>${e.marcas.map(m => `<span class="chip">${esc(m.marca)}<button class="m_del" data-id="${m.id}" title="Quitar">×</button></span>`).join("") || '<span class="mut">Sin marcas</span>'}</div>
+        <div class="row"><input class="m_nom" placeholder="Marca" style="max-width:200px"><button class="s m_add">Agregar</button></div>
+      </div>`).join("")}`;
+    $("nuevaE").onclick = () => { $("formE").innerHTML = `<div class="panel"><div class="grid"><label>Nombre de la empresa<input id="n_nombre"></label>
+      <label>Tono<input id="n_tono" placeholder="profesional y cercano"></label><label>Límite diario por defecto<input id="n_lim" type="number" min="0" value="20"></label></div>
+      <label style="margin-top:10px">Descripción<textarea id="n_desc" rows="3"></textarea></label>
+      <div class="row"><button class="p" id="n_ok">Crear empresa</button><button class="s" id="n_no">Cancelar</button></div></div>`;
+      $("n_no").onclick = () => $("formE").innerHTML = "";
+      $("n_ok").onclick = () => act(async () => { await api("/api/admin/empresas", { method: "POST", body: { nombre: $("n_nombre").value, tono: $("n_tono").value, descripcion: $("n_desc").value, limite_diario_default: $("n_lim").value } }); aviso("Empresa creada ✓"); vEmpresas(); }); };
+    document.querySelectorAll("#main .panel[data-e]").forEach(p => {
+      const id = p.dataset.e, q = (c) => p.querySelector(c);
+      q(".e_save").onclick = () => act(async () => { await api("/api/admin/empresas/" + id, { method: "PATCH", body: { nombre: q(".e_nombre").value, tono: q(".e_tono").value, descripcion: q(".e_desc").value, limite_diario_default: q(".e_lim").value, activa: q(".e_act").value === "1" } }); aviso("Empresa guardada ✓"); vEmpresas(); });
+      q(".s_add").onclick = () => act(async () => { await api("/api/admin/sucursales", { method: "POST", body: { empresa_id: id, nombre: q(".s_nom").value, ciudad: q(".s_ciu").value } }); vEmpresas(); });
+      q(".m_add").onclick = () => act(async () => { await api("/api/admin/marcas", { method: "POST", body: { empresa_id: id, marca: q(".m_nom").value } }); vEmpresas(); });
+      p.querySelectorAll(".s_del").forEach(b => b.onclick = () => confirm("¿Eliminar la sucursal? Los usuarios asignados quedarán sin sucursal.") && act(async () => { await api("/api/admin/sucursales/" + b.dataset.id, { method: "DELETE" }); vEmpresas(); }));
+      p.querySelectorAll(".m_del").forEach(b => b.onclick = () => act(async () => { await api("/api/admin/marcas/" + b.dataset.id, { method: "DELETE" }); vEmpresas(); }));
+    });
+  });
+}
+
+// ======================= CONOCIMIENTO GLOBAL =======================
+async function vConocimiento() {
+  await act(async () => {
+    conocimiento = await api("/api/admin/conocimiento");
+    const total = conocimiento.filter(d => d.activo).reduce((a, d) => a + d.largo, 0);
+    $("main").innerHTML = `<h2>Conocimiento global</h2>
+      <p class="mut">Metodologías, expertos, datos de mercado, triggers y buenas prácticas. Sirven a <b>todas</b> las empresas y se aplican en máximo 1 minuto tras guardar.
+      Tamaño activo: ${total.toLocaleString("es-EC")} caracteres (≈ ${Math.round(total / 3.6).toLocaleString("es-EC")} tokens por consulta; se cachea para abaratar).</p>
+      <div class="row"><button class="s" id="imp">Importar archivos base (solo agrega los que faltan)</button><button class="d" id="imp2">Restaurar desde archivos (sobrescribe)</button><button class="p" id="nuevoK">+ Nuevo documento</button></div>
+      <div id="formK"></div>
+      <div class="tablewrap"><table><thead><tr><th>Orden</th><th>Documento</th><th>Clave</th><th>Caracteres</th><th>Estado</th><th>Actualizado</th></tr></thead><tbody>
+      ${conocimiento.map(d => `<tr class="click" data-id="${d.id}"><td>${d.orden}</td><td>${esc(d.titulo)}</td><td>${esc(d.clave)}</td><td>${d.largo.toLocaleString("es-EC")}</td>
+        <td><span class="tag ${d.activo ? "ok" : "bad"}">${d.activo ? "activo" : "apagado"}</span></td><td>${new Date(d.updated_at).toLocaleString("es-EC")}</td></tr>`).join("")}
+      </tbody></table></div>${conocimiento.length ? "" : '<p class="mut">Aún no hay documentos. Pulsa "Importar archivos base" para cargar el cerebro actual del copiloto.</p>'}`;
+    const importar = (sobrescribir) => act(async () => { const r = await api("/api/admin/conocimiento/importar", { method: "POST", body: { sobrescribir } });
+      aviso(`Creados: ${r.creados.length} · Actualizados: ${r.actualizados.length} · Omitidos: ${r.omitidos.length}`); vConocimiento(); });
+    $("imp").onclick = () => importar(false);
+    $("imp2").onclick = () => confirm("Esto reemplaza el contenido de los 5 documentos base por los archivos del repositorio y pierde tus ediciones en ellos. ¿Continuar?") && importar(true);
+    $("nuevoK").onclick = () => formConocimiento(null);
+    document.querySelectorAll("#main tr.click").forEach(tr => tr.onclick = () => formConocimiento(conocimiento.find(d => d.id === tr.dataset.id)));
+  });
+}
+function formConocimiento(d) {
+  const nuevo = !d; d = d || { orden: 100, activo: true, titulo: "", clave: "", contenido: "" };
+  $("formK").innerHTML = `<div class="panel"><h3 style="margin-top:0">${nuevo ? "Nuevo documento" : "Editar: " + esc(d.titulo)}</h3>
+    <div class="grid">${nuevo ? '<label>Clave (sin espacios, ej. nuevos-expertos)<input id="k_clave"></label>' : ""}
+      <label>Título<input id="k_titulo" value="${esc(d.titulo)}"></label>
+      <label>Orden en el prompt<input id="k_orden" type="number" min="0" value="${d.orden}"></label>
+      <label>Estado<select id="k_act"><option value="1" ${d.activo ? "selected" : ""}>Activo</option><option value="0" ${!d.activo ? "selected" : ""}>Apagado (no se usa)</option></select></label></div>
+    <label style="margin-top:10px">Contenido (Markdown). Cuidado: este texto guía el comportamiento del agente.<textarea id="k_cont" rows="22" style="font-family:ui-monospace,Menlo,monospace;font-size:13px">${esc(d.contenido)}</textarea></label>
+    <div class="row"><button class="p" id="k_ok">Guardar</button><button class="s" id="k_no">Cancelar</button>${nuevo ? "" : '<button class="d" id="k_del">Eliminar</button>'}</div></div>`;
+  $("k_no").onclick = () => $("formK").innerHTML = "";
+  $("k_ok").onclick = () => act(async () => {
+    const body = { titulo: $("k_titulo").value, orden: $("k_orden").value, activo: $("k_act").value === "1", contenido: $("k_cont").value };
+    if (nuevo) { body.clave = $("k_clave").value; await api("/api/admin/conocimiento", { method: "POST", body }); }
+    else await api("/api/admin/conocimiento/" + d.id, { method: "PUT", body });
+    aviso("Guardado ✓"); vConocimiento();
+  });
+  if (!nuevo) $("k_del").onclick = () => confirm("¿Eliminar este documento? (Puedes restaurar los 5 base desde los archivos.)") && act(async () => { await api("/api/admin/conocimiento/" + d.id, { method: "DELETE" }); vConocimiento(); });
+  $("formK").scrollIntoView({ behavior: "smooth" });
+}
+
+// ======================= CONSULTAS =======================
+async function vConsultas() {
+  await act(async () => {
+    const dias = Number($("dias")?.value || 7);
+    const [r, log] = await Promise.all([api("/api/admin/resumen?dias=" + dias), api("/api/admin/consultas")]);
+    $("main").innerHTML = `<h2>Consultas</h2>
+      <div class="row"><label style="flex-direction:row;align-items:center;gap:8px">Ver últimos <select id="dias" style="width:auto">${[1,7,15,30,90].map(n => `<option ${n === dias ? "selected" : ""}>${n}</option>`).join("")}</select> días</label></div>
+      <h3>Resumen por empresa</h3><div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Empresa</th><th>Consultas</th><th>Bloqueadas</th><th>Vendedores activos</th><th>Tokens (entrada / salida)</th></tr></thead><tbody>
+      ${r.por_empresa.map(x => `<tr><td>${x.fecha}</td><td>${esc(x.empresa || "—")}</td><td>${x.consultas}</td><td>${x.bloqueadas}</td><td>${x.vendedores_activos}</td><td>${Number(x.tokens_entrada).toLocaleString("es-EC")} / ${Number(x.tokens_salida).toLocaleString("es-EC")}</td></tr>`).join("") || '<tr><td colspan="6" class="mut">Sin consultas en el período</td></tr>'}</tbody></table></div>
+      <h3>Resumen por vendedor y día</h3><div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Vendedor</th><th>Empresa</th><th>Consultas</th><th>Bloq.</th><th>Primera</th><th>Última</th><th>👍 / 👎</th></tr></thead><tbody>
+      ${r.por_usuario.map(x => `<tr><td>${x.fecha}</td><td>${esc(x.vendedor || "—")}</td><td>${esc(x.empresa || "—")}</td><td>${x.consultas}</td><td>${x.bloqueadas}</td>
+        <td>${x.primera_consulta ? new Date(x.primera_consulta).toLocaleTimeString("es-EC", { timeZone: "America/Guayaquil", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+        <td>${x.ultima_consulta ? new Date(x.ultima_consulta).toLocaleTimeString("es-EC", { timeZone: "America/Guayaquil", hour: "2-digit", minute: "2-digit" }) : "—"}</td><td>${x.utiles} / ${x.no_utiles}</td></tr>`).join("") || '<tr><td colspan="8" class="mut">Sin consultas en el período</td></tr>'}</tbody></table></div>
+      <h3>Últimas 50 consultas</h3>
+      ${log.map(l => `<details class="panel" style="padding:8px 12px;margin:6px 0"><summary>${new Date(l.created_at).toLocaleString("es-EC", { timeZone: "America/Guayaquil" })} · <b>${esc(l.vendedor)}</b> · ${esc((l.pregunta || "").slice(0, 90))}
+        <span class="tag ${l.estado === "ok" ? "ok" : "bad"}">${l.estado}</span> ${l.util === true ? "👍" : l.util === false ? "👎" : ""}</summary>
+        <div class="mut">Pregunta</div><pre class="txt">${esc(l.pregunta)}</pre><div class="mut">Respuesta (${l.tokens_entrada ?? 0} / ${l.tokens_salida ?? 0} tokens)</div><pre class="txt">${esc(l.respuesta || "—")}</pre></details>`).join("") || '<p class="mut">Sin registros</p>'}`;
+    $("dias").onchange = vConsultas;
+  });
+}
+
+(async () => { getSess() ? iniciar() : $("login").style.display = "flex"; })();
+</script>
+</body>
+</html>

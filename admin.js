@@ -37,7 +37,7 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
   app.get("/api/admin/usuarios", ...A, async (_req, res) => {
     try {
       const [p, u, uso] = await Promise.all([
-        admin.from("perfiles").select("id,rol,nombre,descripcion,empresa_id,sucursal_id,limite_diario,activo,created_at").order("nombre"),
+        admin.from("perfiles").select("id,rol,nombre,descripcion,telefono,empresa_id,sucursal_id,limite_diario,activo,created_at").order("nombre"),
         admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
         admin.from("uso_diario").select("vendedor_id,consultas,bloqueadas").eq("fecha", hoyEC()),
       ]);
@@ -89,6 +89,11 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
       c.limite_diario = n;
     }
     if (b.descripcion !== undefined) c.descripcion = str(b.descripcion, 1500) || null;
+    if (b.telefono !== undefined) {
+      const t = str(b.telefono, 25) || null;
+      if (t && !/^[+\d][\d\s().-]{5,}$/.test(t)) return { error: "Teléfono inválido (usa solo números, +, espacios o guiones)" };
+      c.telefono = t;
+    }
     if (b.activo !== undefined) c.activo = !!b.activo;
     return { cambios: c };
   }

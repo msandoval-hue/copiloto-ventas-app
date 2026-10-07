@@ -46,6 +46,8 @@
   <div class="right">
     <span id="cupo"></span>
     <select id="empresa" style="display:none"></select>
+    <a id="adminlink" href="/admin.html" style="display:none;background:rgba(255,255,255,.2);color:#fff;padding:6px 10px;border-radius:6px;font-size:13px;text-decoration:none">⚙️ Admin</a>
+    <button id="perfil">Mi perfil</button>
     <button id="reset">Nueva consulta</button>
     <button id="salir">Salir</button>
   </div>
@@ -60,6 +62,19 @@
   <textarea id="t" rows="1" placeholder="Cuéntame tu situación con el cliente..."></textarea>
   <button id="send">Enviar</button>
 </form>
+
+<div id="pm" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);align-items:center;justify-content:center;padding:16px;z-index:9">
+  <form class="box" id="pf" style="background:#fff;border-radius:14px;padding:20px;width:100%;max-width:460px;display:flex;flex-direction:column;gap:10px">
+    <h2 style="margin:0;font-size:18px">Mi perfil de asesor</h2>
+    <p style="margin:0;color:#6b7787;font-size:13px">Descríbete: cómo vendes, tus fortalezas, qué quieres mejorar. El copiloto lo usará para adaptar sus mensajes y consejos a ti.</p>
+    <textarea id="pd" rows="7" maxlength="1500" style="flex:none;max-height:none;width:100%"></textarea>
+    <div id="pmsg" style="font-size:13px;min-height:16px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button type="button" id="pc" style="background:#eef1f5;border:0;border-radius:8px;padding:8px 14px;cursor:pointer">Cerrar</button>
+      <button id="ps" style="background:#0b5fff;color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer">Guardar</button>
+    </div>
+  </form>
+</div>
 
 <div id="login">
   <form class="box" id="lf">
@@ -130,6 +145,7 @@ async function cargarMe() {
   if (!r.ok) return false;
   me = await r.json();
   pintarCupo(me.usadas, me.limite);
+  $("adminlink").style.display = me.rol === "admin" ? "" : "none";
   if (me.rol === "admin" && me.empresas?.length) {
     const sel = $("empresa");
     sel.innerHTML = '<option value="">Empresa…</option>' + me.empresas.map(e => `<option value="${e.id}">${e.nombre}</option>`).join("");
@@ -140,6 +156,20 @@ async function cargarMe() {
   return true;
 }
 $("empresa").onchange = (e) => { empresaSel = e.target.value; history = []; sessionStorage.removeItem("h"); cargarMe(); chat.innerHTML = ""; saludo(); };
+
+// ---------- mi perfil ----------
+$("perfil").onclick = () => { $("pd").value = me?.descripcion || ""; $("pmsg").textContent = ""; $("pm").style.display = "flex"; };
+$("pc").onclick = () => { $("pm").style.display = "none"; };
+$("pf").onsubmit = async (e) => {
+  e.preventDefault(); $("ps").disabled = true;
+  try {
+    const r = await api("/api/me/perfil", { method: "PATCH", body: JSON.stringify({ descripcion: $("pd").value }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) { me.descripcion = $("pd").value; $("pmsg").style.color = "#1d7a3a"; $("pmsg").textContent = "Guardado ✓"; }
+    else { $("pmsg").style.color = "#c0392b"; $("pmsg").textContent = j.error || "No se pudo guardar"; }
+  } catch { $("pmsg").style.color = "#c0392b"; $("pmsg").textContent = "Sin conexión"; }
+  $("ps").disabled = false;
+};
 
 // ---------- chat ----------
 function esc(s){ return s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }

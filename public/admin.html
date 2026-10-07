@@ -134,6 +134,7 @@ function formUsuario(u) {
       ${nuevo ? `<label>Correo<input id="u_email" type="email"></label>` : `<label>Correo<input value="${esc(u.email || "")}" disabled></label>`}
       <label>${nuevo ? "Clave (mín. 8 caracteres)" : "Nueva clave (vacío = no cambiar)"}<input id="u_pass" type="text" autocomplete="off"></label>
       <label>Nombre<input id="u_nombre" value="${esc(u.nombre || "")}"></label>
+      <label>Teléfono / WhatsApp<input id="u_tel" value="${esc(u.telefono || "")}" placeholder="+593 9XXXXXXXX"></label>
       <label>Rol<select id="u_rol"><option value="vendedor" ${u.rol === "vendedor" ? "selected" : ""}>Vendedor</option><option value="admin" ${u.rol === "admin" ? "selected" : ""}>Administrador</option></select></label>
       <label>Empresa<select id="u_emp">${optEmp(u.empresa_id)}</select></label>
       <label>Sucursal<select id="u_suc"></select></label>
@@ -148,7 +149,7 @@ function formUsuario(u) {
   $("u_no").onclick = () => $("formU").innerHTML = "";
   $("u_ok").onclick = () => act(async () => {
     const body = { nombre: $("u_nombre").value, rol: $("u_rol").value, empresa_id: $("u_emp").value || null, sucursal_id: $("u_suc").value || null,
-      limite_diario: $("u_lim").value === "" ? null : Number($("u_lim").value), activo: $("u_act").value === "1", descripcion: $("u_desc").value };
+      limite_diario: $("u_lim").value === "" ? null : Number($("u_lim").value), activo: $("u_act").value === "1", descripcion: $("u_desc").value, telefono: $("u_tel").value };
     if (nuevo) { body.email = $("u_email").value; body.password = $("u_pass").value; await api("/api/admin/usuarios", { method: "POST", body }); aviso("Usuario creado ✓"); }
     else { if ($("u_pass").value) body.password = $("u_pass").value; await api("/api/admin/usuarios/" + u.id, { method: "PATCH", body }); aviso("Cambios guardados ✓"); }
     vUsuarios();

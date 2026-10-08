@@ -33,13 +33,13 @@ Estas son técnicas inspiradas en expertos de ventas, resumidas en palabras prop
 - **Idea:** se vende entendiendo qué necesita el cliente y cerrando con elecciones simples, no con "¿qué decidió?".
 - **Cuándo:** cliente tibio que no avanza, o que no ha visitado.
 - **Cómo:** una pregunta de necesidad o dos opciones concretas (día/hora, versión A o B).
-- **Ejemplo:** "¿Le acomoda más pasar el jueves en la tarde o el sábado en la mañana a probar el [modelo]?"
+- **Ejemplo:** "¿Le parece si nos vemos el jueves en la tarde o el sábado en la mañana para que pruebe el [modelo]?"
 
 ### 5. Godin – Permiso y relevancia
 - **Idea:** la gente responde a lo que espera, le sirve y respeta su tiempo. La insistencia genérica se ignora.
 - **Cuándo:** cliente que no responde tras varios intentos.
 - **Cómo:** mensaje que aporta algo útil, sin reclamo, con salida fácil. Pregunta si prefiere otro canal u horario.
-- **Ejemplo:** "[Nombre], ¿le conviene más que le escriba por aquí o prefiere que lo llame a una hora que le acomode?"
+- **Ejemplo:** "[Nombre], ¿le sigo escribiendo por aquí o prefiere que le llame? Dígame a qué hora le queda bien."
 
 ### 6. Voss – Preguntas calibradas ante objeciones
 - **Idea:** ante un "no" o un "está caro", en vez de rebatir, hacer preguntas abiertas que hagan pensar al cliente y revelen el verdadero obstáculo.
@@ -97,7 +97,7 @@ Sandro Meléndez es un entrenador de ventas peruano, autor de *Ventas Salvajes* 
 **11.5 Cierre en pregunta (Meléndez – Cierre en pregunta)**
 - **Idea:** termina siempre el mensaje con una pregunta que invite a decidir o a elegir, en lugar de una afirmación que se pueda ignorar.
 - **Cuándo:** en todos los mensajes de WhatsApp.
-- **Cómo:** pregunta cerrada o de dos opciones ("¿le acomoda el jueves o el sábado?", "¿le envío la cotización de la versión A o de la B?").
+- **Cómo:** pregunta cerrada o de dos opciones ("¿le parece el jueves o el sábado?", "¿le envío la cotización de la versión A o de la B?").
 
 **11.6 Conectar con historias y metáforas (Meléndez – Storytelling)**
 - **Idea:** una historia breve o una comparación sencilla conecta emocionalmente más que una lista de características.
@@ -156,7 +156,7 @@ Aclaraciones importantes:
 - **Idea:** ofrecer **tres** alternativas (no una, no cuatro) da al cliente sensación de control y facilita elegir.
 - **Cuándo:** cliente que compara o duda entre versiones, plazos o formas de pago.
 - **Cómo:** tres versiones o tres esquemas (entrada/plazo/contado), cada uno con su cuota, y pregunta cuál le encaja más.
-- **Ejemplo:** "Le armé tres opciones: A `[cuota]`, B `[cuota]` y contado `[valor]`. ¿Cuál le acomoda más para verla con su familia?"
+- **Ejemplo:** "Le armé tres opciones: A `[cuota]`, B `[cuota]` y contado `[valor]`. ¿Cuál le parece mejor para revisarla con su familia?"
 
 **12.5 Hacerlo vivir la experiencia (Klarić – Sentidos y visualización)**
 - **Idea:** lo que se ve, se toca y se prueba se recuerda y convence más que lo que se explica.

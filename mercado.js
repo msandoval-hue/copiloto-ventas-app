@@ -93,6 +93,13 @@ export function procesarCsv(texto, { marcasPropias = [] } = {}) {
 // ---------------------------------------------------------------------------
 // Texto de mercado para el prompt (compacto): lo que el asesor puede usar al hablar con el cliente.
 // ---------------------------------------------------------------------------
+// global primero, la empresa pisa al mismo marca/modelo/mes/combustible
+function unificar(filas) {
+  const m = new Map();
+  for (const r of [...filas].sort((a, b) => (a.empresa_id ? 1 : 0) - (b.empresa_id ? 1 : 0)))
+    m.set(`${r.anio}|${r.mes}|${sinTilde(r.marca)}|${sinTilde(r.modelo)}|${sinTilde(r.combustible)}`, r);
+  return [...m.values()].map((r) => ({ ...r, p: r.anio * 100 + r.mes, ventas: Number(r.ventas) || 0, precio: r.precio == null ? null : Number(r.precio) }));
+}
 const pct = (a, b) => (b > 0 ? ((a / b) * 100).toFixed(1) + "%" : "s/d");
 const mm = (p) => `${String(p).slice(0, 4)}-${String(p).slice(4)}`;
 const nf = (n) => Number(n).toLocaleString("es-EC");
@@ -100,11 +107,7 @@ const nf = (n) => Number(n).toLocaleString("es-EC");
 export function textoMercado(filas, marcasPropias = []) {
   if (!filas?.length) return "";
   const propias = new Set(marcasPropias.map(sinTilde));
-  // global primero, la empresa pisa al mismo marca/modelo/mes
-  const m = new Map();
-  for (const r of [...filas].sort((a, b) => (a.empresa_id ? 1 : 0) - (b.empresa_id ? 1 : 0)))
-    m.set(`${r.anio}|${r.mes}|${sinTilde(r.marca)}|${sinTilde(r.modelo)}`, r);
-  const datos = [...m.values()].map((r) => ({ ...r, p: r.anio * 100 + r.mes, ventas: Number(r.ventas) || 0, precio: r.precio == null ? null : Number(r.precio) }));
+  const datos = unificar(filas);
   const periodos = [...new Set(datos.map((d) => d.p))].sort();
   const ult = periodos[periodos.length - 1];
   // ventana: últimos 3 meses disponibles
@@ -165,6 +168,65 @@ export function textoMercado(filas, marcasPropias = []) {
       mios.map((x) => { const pr = precioDe(x.k[1], x.k[2]); return `${x.k[1]} ${x.k[2]}${combDe(x.k[1], x.k[2]) ? " [" + combDe(x.k[1], x.k[2]) + "]" : ""} puesto ${x.pos} de ${delSeg.length}, ${nf(x.v)} u.${pr ? ` (~$${nf(pr)})` : ""}`; }).join("; "));
   }
   if (lineas.length) { L.push("Nuestros modelos frente a su segmento:"); L.push(...lineas); }
+  const vals = (k) => [...new Set(datos.map((d) => d[k]).filter(Boolean))].sort();
+  L.push(`Valores exactos en la base para filtrar -> segmentos: ${vals("segmento").join(", ")}; combustibles: ${vals("combustible").join(", ") || "s/d"}.`);
+  L.push("Para listas, precios o ventas de modelos concretos (ej. 'SUV eléctricas con precio', 'los 10 más vendidos', 'precio del Tracker') USA la herramienta consultar_mercado antes de responder. No digas que no tienes el dato sin consultarla.");
   L.push("Uso: apóyate en estas cifras solo como argumento de mercado (ej. 'es de los más vendidos de su segmento'); no las cites como si fueran de la marca ni inventes cifras que no estén aquí.");
   return L.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Herramienta que el agente puede llamar para consultar la base completa.
+// ---------------------------------------------------------------------------
+export const TOOL_MERCADO = {
+  name: "consultar_mercado",
+  description:
+    "Consulta la base de mercado automotriz cargada (ventas y precios por marca, modelo, combustible y segmento). " +
+    "Úsala para listas y rankings (ej. SUV eléctricos con precio, top de ventas de un segmento, ventas y precio de un modelo). " +
+    "Devuelve unidades vendidas en el período y precio promedio. Usa los valores exactos de segmento y combustible indicados en el contexto.",
+  input_schema: {
+    type: "object",
+    properties: {
+      segmento: { type: "string", description: "Ej. SUV, AUTOMOVIL, PICK UP, VAN, CAMION (valores del contexto). Vacío = todos." },
+      combustible: { type: "string", description: "Ej. ELECTRICO, HIBRIDO, GASOLINA, DIESEL (valores del contexto). Vacío = todos." },
+      marca: { type: "string", description: "Filtra por marca (coincidencia parcial)." },
+      modelo: { type: "string", description: "Filtra por modelo (coincidencia parcial)." },
+      desde: { type: "string", description: "Mes inicial AAAA-MM. Por defecto, hace 3 meses del último dato." },
+      hasta: { type: "string", description: "Mes final AAAA-MM. Por defecto, el último mes con datos." },
+      orden: { type: "string", enum: ["unidades", "precio_asc", "precio_desc"], description: "Orden de resultados. Por defecto unidades (más vendidos primero)." },
+      limite: { type: "integer", description: "Máximo de filas (1 a 40). Por defecto 20." },
+    },
+  },
+};
+
+export function consultarMercado(filas, a = {}) {
+  const datos = unificar(filas || []);
+  if (!datos.length) return { error: "No hay datos de mercado cargados." };
+  const periodos = [...new Set(datos.map((d) => d.p))].sort();
+  const ult = periodos[periodos.length - 1];
+  const aP = (s) => { const x = /^(\d{4})-(\d{1,2})$/.exec(String(s || "").trim()); return x ? Number(x[1]) * 100 + Number(x[2]) : null; };
+  const hasta = aP(a.hasta) ?? ult;
+  const desde = aP(a.desde) ?? periodos[Math.max(periodos.indexOf(ult) - 2, 0)];
+  const cont = (campo, q) => !q || sinTilde(campo).includes(sinTilde(q));
+  const sel = datos.filter((d) => d.p >= desde && d.p <= hasta && cont(d.segmento, a.segmento) && cont(d.combustible, a.combustible) && cont(d.marca, a.marca) && cont(d.modelo, a.modelo));
+  const g = new Map();
+  for (const d of sel) {
+    const k = [d.marca, d.modelo, d.combustible || "", d.segmento || ""].join("|");
+    const x = g.get(k) || { marca: d.marca, modelo: d.modelo, combustible: d.combustible || null, segmento: d.segmento || null, unidades: 0, _pv: 0, _pu: 0, _ps: 0, _pn: 0 };
+    x.unidades += d.ventas;
+    if (d.precio != null) { x._pv += d.precio * Math.max(d.ventas, 1); x._pu += Math.max(d.ventas, 1); x._ps += d.precio; x._pn++; }
+    g.set(k, x);
+  }
+  let out = [...g.values()].map((x) => ({ marca: x.marca, modelo: x.modelo, combustible: x.combustible, segmento: x.segmento, unidades: x.unidades, precio_promedio: x._pu ? Math.round(x._pv / x._pu) : null }));
+  if (a.orden === "precio_asc") out.sort((p, q) => (p.precio_promedio ?? Infinity) - (q.precio_promedio ?? Infinity));
+  else if (a.orden === "precio_desc") out.sort((p, q) => (q.precio_promedio ?? -1) - (p.precio_promedio ?? -1));
+  else out.sort((p, q) => q.unidades - p.unidades);
+  const lim = Math.min(Math.max(parseInt(a.limite, 10) || 20, 1), 40);
+  return {
+    periodo: `${mm(desde)} a ${mm(hasta)}`,
+    coincidencias: out.length,
+    unidades_total: out.reduce((s, x) => s + x.unidades, 0),
+    resultados: out.slice(0, lim),
+    nota: out.length ? "Precio = promedio ponderado por unidades en el período; es dato de mercado, no precio de lista de la empresa." : "Sin coincidencias: revisa los filtros (usa los valores exactos del contexto).",
+  };
 }

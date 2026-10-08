@@ -145,7 +145,7 @@ function crearContexto(admin) {
       /* el mercado es opcional: si falla, el copiloto sigue sin esa sección */
     }
 
-    return { texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre, filas: filasMercado };
+    return { texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre, filas: filasMercado, mercadoHasta: filasMercado.reduce((m, r) => Math.max(m, r.anio * 100 + r.mes), 0) || null };
   }
 
   return {
@@ -292,11 +292,10 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
       const out = {
         nombre: p.nombre,
         rol: p.rol,
-        descripcion: p.descripcion || "",
-        telefono: p.telefono || "",
         empresa: ctx ? { id: empresaId, nombre: ctx.nombre } : null,
         usadas: uso?.consultas || 0,
         limite: p.rol === "admin" ? null : p.limite_diario ?? ctx?.limiteDefault ?? 20,
+        mercado_hasta: ctx?.mercadoHasta ?? null, // AAAAMM del último mes con datos de mercado
       };
       if (p.rol === "admin") {
         const { data: lista } = await admin.from("empresas").select("id,nombre").order("nombre");
@@ -309,14 +308,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
     }
   });
 
-  // Cada usuario puede escribir/editar su propia descripción (personalidad y forma de gestionar)
-  app.patch("/api/me/perfil", auth, async (req, res) => {
-    const d = typeof req.body?.descripcion === "string" ? req.body.descripcion.trim().slice(0, 1500) : null;
-    if (d === null) return res.status(400).json({ error: "Falta la descripción" });
-    const { error } = await admin.from("perfiles").update({ descripcion: d || null }).eq("id", req.perfil.id);
-    if (error) return res.status(500).json({ error: "No se pudo guardar" });
-    res.json({ ok: true });
-  });
+  // La descripción y el teléfono del asesor los define solo el administrador (desde la pestaña Usuarios).
 
   registrarAdmin(app, { admin, auth, invalidarEmpresas: empresas.invalidar, invalidarBase: conocimiento.invalidar });
 

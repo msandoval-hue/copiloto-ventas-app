@@ -1,5 +1,6 @@
 // Rutas de administración. Solo accesibles con rol "admin".
 import { readFileSync } from "fs";
+import { procesarCsv } from "./mercado.js";
 
 const TZ = "America/Guayaquil";
 const hoyEC = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
@@ -374,6 +375,98 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
       res.json(out);
     } catch (e) {
       falla(res, e, "No se pudo importar. ¿Ejecutaste la migración 02 en Supabase?");
+    }
+  });
+
+  // ======================= MERCADO (CSV) =======================
+  // empresa_id vacío = dato general del mercado (ej. AEADE), visible para todas las empresas.
+  app.get("/api/admin/mercado", ...A, async (_req, res) => {
+    try {
+      const filas = [];
+      for (let desde = 0; desde < 200000; desde += 1000) {
+        const { data, error } = await admin.from("ventas_mercado").select("empresa_id,fuente,anio,mes,ventas").range(desde, desde + 999);
+        if (error) return falla(res, error, "No se pudo leer el mercado");
+        filas.push(...(data || []));
+        if ((data || []).length < 1000) break;
+      }
+      const g = new Map();
+      for (const r of filas) {
+        const k = `${r.empresa_id || ""}|${r.fuente}`;
+        const x = g.get(k) || { empresa_id: r.empresa_id || null, fuente: r.fuente, filas: 0, unidades: 0, desde: 999999, hasta: 0 };
+        const p = r.anio * 100 + r.mes;
+        x.filas++; x.unidades += Number(r.ventas) || 0; x.desde = Math.min(x.desde, p); x.hasta = Math.max(x.hasta, p);
+        g.set(k, x);
+      }
+      res.json([...g.values()]);
+    } catch (e) {
+      falla(res, e, "No se pudo leer el mercado");
+    }
+  });
+
+  // body: { csv, empresa_id|null, fuente, simular }  -> reemplaza los meses del archivo para ese destino y fuente
+  app.post("/api/admin/mercado/importar", ...A, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const empresaId = b.empresa_id || null;
+      const fuente = str(b.fuente, 60) || (empresaId ? "CSV empresa" : "CSV mercado");
+      if (typeof b.csv !== "string" || !b.csv.trim()) return mal(res, "Selecciona un archivo CSV");
+      let marcas = [];
+      if (empresaId) {
+        const { data: emp } = await admin.from("empresas").select("id").eq("id", empresaId).maybeSingle();
+        if (!emp) return mal(res, "La empresa no existe");
+        const { data } = await admin.from("marcas_empresa").select("marca").eq("empresa_id", empresaId);
+        marcas = (data || []).map((x) => x.marca);
+      } else {
+        // en datos generales también marcamos como "propias" las marcas de cualquier empresa (solo informativo)
+        const { data } = await admin.from("marcas_empresa").select("marca");
+        marcas = [...new Set((data || []).map((x) => x.marca))];
+      }
+      const r = procesarCsv(b.csv, { marcasPropias: marcas });
+      if (r.error) return mal(res, r.error);
+      const resumen = {
+        leidas: r.leidas, validas: r.filas.length, con_error: r.totalErrores, errores: r.errores,
+        meses: r.periodos.length, desde: r.periodos[0] || null, hasta: r.periodos.at(-1) || null,
+        unidades: r.filas.reduce((s, x) => s + x.ventas, 0), marcas: new Set(r.filas.map((x) => x.marca)).size, modelos: new Set(r.filas.map((x) => x.marca + "|" + x.modelo)).size,
+      };
+      if (b.simular) return res.json({ simulado: true, ...resumen });
+      if (!r.filas.length) return mal(res, "Ninguna fila válida para cargar");
+      if (r.totalErrores && !b.aceptar_errores) return mal(res, `Hay ${r.totalErrores} filas con error. Corrígelas o confirma cargar solo las válidas.`);
+
+      // reemplazo por mes: borra lo anterior de ese destino+fuente en los meses presentes, luego inserta
+      const meses = new Map();
+      for (const x of r.filas) { if (!meses.has(x.anio)) meses.set(x.anio, new Set()); meses.get(x.anio).add(x.mes); }
+      for (const [anio, ms] of meses) {
+        for (const mes of ms) {
+          let q = admin.from("ventas_mercado").delete().eq("anio", anio).eq("mes", mes).eq("fuente", fuente);
+          q = empresaId ? q.eq("empresa_id", empresaId) : q.is("empresa_id", null);
+          const { error } = await q;
+          if (error) return falla(res, error, "No se pudo reemplazar los datos anteriores");
+        }
+      }
+      const filas = r.filas.map((x) => ({ ...x, empresa_id: empresaId, fuente }));
+      for (let i = 0; i < filas.length; i += 500) {
+        const { error } = await admin.from("ventas_mercado").insert(filas.slice(i, i + 500));
+        if (error) return falla(res, error, `Se cargaron ${i} de ${filas.length} filas y falló. Vuelve a cargar el mismo archivo: reemplaza los meses sin duplicar.`);
+      }
+      invalidarEmpresas();
+      res.json({ ok: true, ...resumen });
+    } catch (e) {
+      falla(res, e, "No se pudo importar el archivo");
+    }
+  });
+
+  app.post("/api/admin/mercado/borrar", ...A, async (req, res) => {
+    try {
+      const b = req.body || {};
+      if (!b.fuente) return mal(res, "Indica la fuente a borrar");
+      let q = admin.from("ventas_mercado").delete().eq("fuente", b.fuente);
+      q = b.empresa_id ? q.eq("empresa_id", b.empresa_id) : q.is("empresa_id", null);
+      const { error } = await q;
+      if (error) return falla(res, error, "No se pudo borrar");
+      invalidarEmpresas();
+      res.json({ ok: true });
+    } catch (e) {
+      falla(res, e);
     }
   });
 

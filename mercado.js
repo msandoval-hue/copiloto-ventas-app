@@ -189,7 +189,7 @@ export const TOOL_MERCADO = {
   input_schema: {
     type: "object",
     properties: {
-      segmento: { type: "string", description: "Ej. SUV, AUTOMOVIL, PICK UP, VAN, CAMION (valores del contexto). Vacío = todos." },
+      segmento: { type: "string", description: "Ej. SUV, AUTOMOVIL, PICK UP, VAN, CAMION (valores del contexto). Equivalencias en Ecuador: camioneta = PICK UP; sedán/hatchback/carro = AUTOMOVIL. Coincidencia exacta. Vacío = todos." },
       combustible: { type: "string", description: "Ej. ELECTRICO, HIBRIDO, GASOLINA, DIESEL (valores del contexto). Vacío = todos." },
       marca: { type: "string", description: "Filtra por marca (coincidencia parcial)." },
       modelo: { type: "string", description: "Filtra por modelo (coincidencia parcial)." },
@@ -202,6 +202,19 @@ export const TOOL_MERCADO = {
   },
 };
 
+// Sinónimos usados en Ecuador -> valor de la base (se comparan sin tildes ni mayúsculas)
+const SEG_ALIAS = { suv: "SUV", crossover: "SUV", "todo terreno": "SUV", camioneta: "PICK UP", camionetas: "PICK UP", pickup: "PICK UP", "pick up": "PICK UP", "pick-up": "PICK UP",
+  auto: "AUTOMOVIL", autos: "AUTOMOVIL", automovil: "AUTOMOVIL", automoviles: "AUTOMOVIL", carro: "AUTOMOVIL", sedan: "AUTOMOVIL", hatchback: "AUTOMOVIL",
+  van: "VAN", vans: "VAN", furgoneta: "VAN", minivan: "VAN", camion: "CAMION", camiones: "CAMION", bus: "BUS", buses: "BUS", buseta: "BUS" };
+const COMB_ALIAS = { electrico: "ELECTRICO", electrica: "ELECTRICO", electricos: "ELECTRICO", electricas: "ELECTRICO", ev: "ELECTRICO", bev: "ELECTRICO",
+  hibrido: "HIBRIDO", hibrida: "HIBRIDO", hibridos: "HIBRIDO", hibridas: "HIBRIDO", hev: "HIBRIDO", phev: "HIBRIDO", mhev: "HIBRIDO",
+  gasolina: "GASOLINA", nafta: "GASOLINA", diesel: "DIESEL" };
+function filtroExacto(valor, alias) {
+  const q = sinTilde(valor);
+  if (!q) return null;
+  return { canon: sinTilde(alias[q] || valor), esAlias: !!alias[q] };
+}
+
 export function consultarMercado(filas, a = {}) {
   const datos = unificar(filas || []);
   if (!datos.length) return { error: "No hay datos de mercado cargados." };
@@ -211,7 +224,13 @@ export function consultarMercado(filas, a = {}) {
   const hasta = aP(a.hasta) ?? ult;
   const desde = aP(a.desde) ?? periodos[Math.max(periodos.indexOf(ult) - 2, 0)];
   const cont = (campo, q) => !q || sinTilde(campo).includes(sinTilde(q));
-  const sel = datos.filter((d) => d.p >= desde && d.p <= hasta && cont(d.segmento, a.segmento) && cont(d.combustible, a.combustible) && cont(d.marca, a.marca) && cont(d.modelo, a.modelo));
+  // segmento y combustible: coincidencia EXACTA (SUV no debe traer AUTOMOVIL ni PICK UP)
+  const fs = filtroExacto(a.segmento, SEG_ALIAS), fc = filtroExacto(a.combustible, COMB_ALIAS);
+  const exacto = (campo, f) => !f || sinTilde(campo) === f.canon;
+  let sel = datos.filter((d) => d.p >= desde && d.p <= hasta && exacto(d.segmento, fs) && exacto(d.combustible, fc) && cont(d.marca, a.marca) && cont(d.modelo, a.modelo));
+  // si lo escrito no es un valor de la base ni un sinónimo conocido, se busca por coincidencia parcial
+  if (!sel.length && ((fs && !fs.esAlias) || (fc && !fc.esAlias)))
+    sel = datos.filter((d) => d.p >= desde && d.p <= hasta && (!fs || fs.esAlias ? exacto(d.segmento, fs) : cont(d.segmento, a.segmento)) && (!fc || fc.esAlias ? exacto(d.combustible, fc) : cont(d.combustible, a.combustible)) && cont(d.marca, a.marca) && cont(d.modelo, a.modelo));
   const por = ["marca", "segmento", "combustible"].includes(a.agrupar_por) ? a.agrupar_por : "modelo";
   const g = new Map();
   for (const d of sel) {
@@ -235,6 +254,7 @@ export function consultarMercado(filas, a = {}) {
   const lim = Math.min(Math.max(parseInt(a.limite, 10) || 20, 1), 40);
   return {
     periodo: `${mm(desde)} a ${mm(hasta)}`,
+    filtros_aplicados: { segmento: fs ? fs.canon.toUpperCase() : "todos", combustible: fc ? fc.canon.toUpperCase() : "todos", marca: a.marca || "todas", modelo: a.modelo || "todos" },
     agrupado_por: por,
     coincidencias: out.length,
     con_ventas: conVentas,

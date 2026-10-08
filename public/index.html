@@ -8,12 +8,23 @@
   :root { --bg:#f4f6f8; --card:#fff; --brand:#0b5fff; --ink:#1b2430; --mute:#6b7787; --me:#dce8ff; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); height:100dvh; display:flex; flex-direction:column; }
-  header { background:var(--brand); color:#fff; padding:10px 16px; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
-  header h1 { font-size:17px; margin:0; }
+  header { background:var(--brand); color:#fff; padding:8px 16px 10px; }
+  header .top { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+  header h1 { font-size:14px; margin:0; font-weight:600; opacity:.9; }
   header .right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  header button, header select { background:rgba(255,255,255,.2); border:0; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; font:inherit; font-size:13px; }
+  header button, header select, header a { background:rgba(255,255,255,.2); border:0; color:#fff; padding:5px 10px; border-radius:6px; cursor:pointer; font:inherit; font-size:12px; text-decoration:none; }
   header select option { color:#1b2430; }
-  #cupo { font-size:12px; opacity:.95; }
+  header .info { display:flex; justify-content:space-between; align-items:center; gap:8px 16px; flex-wrap:wrap; margin-top:6px; }
+  header .quien { display:flex; flex-direction:column; line-height:1.2; }
+  #h_nombre { font-size:20px; font-weight:700; }
+  #h_empresa { font-size:13px; opacity:.95; }
+  header .chips2 { display:flex; gap:8px; flex-wrap:wrap; }
+  .pill { background:rgba(255,255,255,.18); border-radius:14px; padding:4px 10px; font-size:12px; white-space:nowrap; }
+  #cupo { font-weight:700; }
+  #cupo.poco { background:#ffb020; color:#3a2600; }
+  #cupo.cero { background:#d93025; color:#fff; }
+  #t:disabled, form#f button:disabled { cursor:not-allowed; }
+  #t:disabled { background:#eef1f5; }
   #chat { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
   .msg { max-width:88%; padding:10px 12px; border-radius:12px; line-height:1.45; white-space:pre-wrap; background:var(--card); box-shadow:0 1px 2px rgba(0,0,0,.08); }
   .me { align-self:flex-end; background:var(--me); }
@@ -42,14 +53,21 @@
 </head>
 <body>
 <header>
-  <h1>🚗 Copiloto de Ventas</h1>
-  <div class="right">
-    <span id="cupo"></span>
-    <select id="empresa" style="display:none"></select>
-    <a id="adminlink" href="/admin.html" style="display:none;background:rgba(255,255,255,.2);color:#fff;padding:6px 10px;border-radius:6px;font-size:13px;text-decoration:none">⚙️ Admin</a>
-    <button id="perfil">Mi perfil</button>
-    <button id="reset">Nueva consulta</button>
-    <button id="salir">Salir</button>
+  <div class="top">
+    <h1>🚗 Copiloto de Ventas</h1>
+    <div class="right">
+      <select id="empresa" style="display:none"></select>
+      <a id="adminlink" href="/admin.html" style="display:none">⚙️ Admin</a>
+      <button id="reset">Nueva consulta</button>
+      <button id="salir">Salir</button>
+    </div>
+  </div>
+  <div class="info">
+    <div class="quien"><span id="h_nombre"></span><span id="h_empresa"></span></div>
+    <div class="chips2">
+      <span class="pill" id="h_mercado" style="display:none"></span>
+      <span class="pill" id="cupo"></span>
+    </div>
   </div>
 </header>
 <div id="chat"></div>
@@ -62,19 +80,6 @@
   <textarea id="t" rows="1" placeholder="Cuéntame tu situación con el cliente..."></textarea>
   <button id="send">Enviar</button>
 </form>
-
-<div id="pm" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);align-items:center;justify-content:center;padding:16px;z-index:9">
-  <form class="box" id="pf" style="background:#fff;border-radius:14px;padding:20px;width:100%;max-width:460px;display:flex;flex-direction:column;gap:10px">
-    <h2 style="margin:0;font-size:18px">Mi perfil de asesor</h2>
-    <p style="margin:0;color:#6b7787;font-size:13px">Descríbete: cómo vendes, tus fortalezas, qué quieres mejorar. El copiloto lo usará para adaptar sus mensajes y consejos a ti.</p>
-    <textarea id="pd" rows="7" maxlength="1500" style="flex:none;max-height:none;width:100%"></textarea>
-    <div id="pmsg" style="font-size:13px;min-height:16px"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button type="button" id="pc" style="background:#eef1f5;border:0;border-radius:8px;padding:8px 14px;cursor:pointer">Cerrar</button>
-      <button id="ps" style="background:#0b5fff;color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer">Guardar</button>
-    </div>
-  </form>
-</div>
 
 <div id="login">
   <form class="box" id="lf">
@@ -134,16 +139,41 @@ $("lf").onsubmit = async (e) => {
 $("salir").onclick = () => { setSess(null); sessionStorage.removeItem("h"); location.reload(); };
 
 // ---------- encabezado: nombre, cupo diario, empresa (admin) ----------
+const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 function pintarCupo(usadas, limite) {
-  if (limite == null) { $("cupo").textContent = me ? me.nombre + " · sin límite" : ""; return; }
+  const el = $("cupo");
+  el.className = "pill";
+  if (limite == null) { el.textContent = "Consultas: sin límite"; bloquear(false); return; }
   const quedan = Math.max(limite - usadas, 0);
-  $("cupo").textContent = `${me?.nombre || ""} · Consultas hoy: ${usadas}/${limite}` + (quedan <= 3 ? ` (te quedan ${quedan})` : "");
+  el.textContent = `Consultas hoy: ${usadas}/${limite}`;
+  if (quedan === 0) el.classList.add("cero"); else if (quedan <= 3) el.classList.add("poco");
+  bloquear(quedan === 0, limite);
+}
+// Sin consultas disponibles: no se puede escribir ni enviar hasta mañana (el servidor también lo impide)
+function bloquear(si, limite) {
+  t.disabled = si; send.disabled = si;
+  document.querySelectorAll("#chips button").forEach(b => b.disabled = si);
+  t.placeholder = si ? `Llegaste a tu límite de ${limite} consultas de hoy. Se reinicia a las 00:00.` : "Cuéntame tu situación con el cliente...";
+  if (si && !document.getElementById("avisoLimite")) {
+    const d = document.createElement("div"); d.id = "avisoLimite"; d.className = "msg bot";
+    d.textContent = `⛔ Llegaste a tu límite de ${limite} consultas de hoy. Se reinicia a las 00:00. Si necesitas más, pídeselo a tu administrador.`;
+    chat.appendChild(d); chat.scrollTop = chat.scrollHeight;
+  }
+  if (!si) document.getElementById("avisoLimite")?.remove();
+}
+function pintarEncabezado() {
+  $("h_nombre").textContent = me?.nombre || "";
+  $("h_empresa").textContent = me?.empresa?.nombre ? "Empresa: " + me.empresa.nombre : "";
+  const m = $("h_mercado");
+  if (me?.mercado_hasta) { const a = Math.floor(me.mercado_hasta / 100), mes = me.mercado_hasta % 100; m.textContent = `Dato mercado hasta: ${MESES[mes - 1]} ${a}`; m.style.display = ""; }
+  else { m.textContent = "Dato mercado: sin cargar"; m.style.display = ""; }
 }
 
 async function cargarMe() {
   const r = await api("/api/me" + (empresaSel ? "?empresa_id=" + encodeURIComponent(empresaSel) : ""));
   if (!r.ok) return false;
   me = await r.json();
+  pintarEncabezado();
   pintarCupo(me.usadas, me.limite);
   $("adminlink").style.display = me.rol === "admin" ? "" : "none";
   if (me.rol === "admin" && me.empresas?.length) {
@@ -155,21 +185,7 @@ async function cargarMe() {
   }
   return true;
 }
-$("empresa").onchange = (e) => { empresaSel = e.target.value; history = []; sessionStorage.removeItem("h"); cargarMe(); chat.innerHTML = ""; saludo(); };
-
-// ---------- mi perfil ----------
-$("perfil").onclick = () => { $("pd").value = me?.descripcion || ""; $("pmsg").textContent = ""; $("pm").style.display = "flex"; };
-$("pc").onclick = () => { $("pm").style.display = "none"; };
-$("pf").onsubmit = async (e) => {
-  e.preventDefault(); $("ps").disabled = true;
-  try {
-    const r = await api("/api/me/perfil", { method: "PATCH", body: JSON.stringify({ descripcion: $("pd").value }) });
-    const j = await r.json().catch(() => ({}));
-    if (r.ok) { me.descripcion = $("pd").value; $("pmsg").style.color = "#1d7a3a"; $("pmsg").textContent = "Guardado ✓"; }
-    else { $("pmsg").style.color = "#c0392b"; $("pmsg").textContent = j.error || "No se pudo guardar"; }
-  } catch { $("pmsg").style.color = "#c0392b"; $("pmsg").textContent = "Sin conexión"; }
-  $("ps").disabled = false;
-};
+$("empresa").onchange = async (e) => { empresaSel = e.target.value; history = []; sessionStorage.removeItem("h"); chat.innerHTML = ""; await cargarMe(); saludo(); pintarCupo(me.usadas, me.limite); };
 
 // ---------- chat ----------
 function esc(s){ return s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
@@ -228,7 +244,7 @@ async function ask(text) {
     }
   } catch { wait.remove(); render("assistant", "⚠️ Sin conexión. Intenta de nuevo."); history.pop(); }
   sessionStorage.setItem("h", JSON.stringify(history));
-  send.disabled = false; t.focus();
+  if (!t.disabled) { send.disabled = false; t.focus(); }
 }
 
 $("f").onsubmit = e => {
@@ -251,6 +267,7 @@ async function iniciar() {
   chat.innerHTML = "";
   if (history.length) { $("chips").style.display = "none"; history.forEach(m => render(m.role, m.content)); }
   else saludo();
+  pintarCupo(me.usadas, me.limite); // si ya no le quedan consultas, deja el aviso y bloquea el envío
 }
 
 // Arranque: si hay sesión guardada la usa; si no, pide ingreso

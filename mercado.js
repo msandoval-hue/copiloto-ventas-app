@@ -48,7 +48,7 @@ export function numero(v) {
   if (s === "") return null;
   const coma = s.lastIndexOf(","), punto = s.lastIndexOf(".");
   if (coma >= 0 && punto >= 0) s = coma > punto ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
-  else if (coma >= 0) s = /,\d{1,2}$/.test(s) ? s.replace(",", ".") : s.replace(/,/g, "");
+  else if (coma >= 0) s = /^\d{1,3}(,\d{3})+$/.test(s) ? s.replace(/,/g, "") : s.replace(",", ".");
   else if (punto >= 0 && /^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
   const n = Number(s);
   return Number.isFinite(n) ? n : NaN;
@@ -144,6 +144,8 @@ export function textoMercado(filas, marcasPropias = []) {
   }
 
   const marcas = suma(w, (d) => d.marca);
+  const nModelos = new Set(w.filter((d) => d.ventas > 0).map((d) => d.marca + "|" + d.modelo)).size;
+  L.push(`Marcas con ventas en la ventana: ${marcas.filter(([, v]) => v > 0).length}; modelos con ventas: ${nModelos}. (Para otros períodos o desgloses, usa la herramienta.)`);
   const propiasLista = marcas.filter(([mk]) => propias.has(sinTilde(mk)));
   if (propiasLista.length) {
     L.push("Marcas de la empresa: " + propiasLista.map(([mk, v]) => {
@@ -193,6 +195,7 @@ export const TOOL_MERCADO = {
       modelo: { type: "string", description: "Filtra por modelo (coincidencia parcial)." },
       desde: { type: "string", description: "Mes inicial AAAA-MM. Por defecto, hace 3 meses del último dato." },
       hasta: { type: "string", description: "Mes final AAAA-MM. Por defecto, el último mes con datos." },
+      agrupar_por: { type: "string", enum: ["modelo", "marca", "segmento", "combustible"], description: "Cómo agrupar los resultados. 'marca' para rankings de marcas o CONTAR marcas (coincidencias = número de marcas); 'segmento' o 'combustible' para participaciones; 'modelo' (por defecto) para listas de modelos." },
       orden: { type: "string", enum: ["unidades", "precio_asc", "precio_desc"], description: "Orden de resultados. Por defecto unidades (más vendidos primero)." },
       limite: { type: "integer", description: "Máximo de filas (1 a 40). Por defecto 20." },
     },
@@ -209,24 +212,34 @@ export function consultarMercado(filas, a = {}) {
   const desde = aP(a.desde) ?? periodos[Math.max(periodos.indexOf(ult) - 2, 0)];
   const cont = (campo, q) => !q || sinTilde(campo).includes(sinTilde(q));
   const sel = datos.filter((d) => d.p >= desde && d.p <= hasta && cont(d.segmento, a.segmento) && cont(d.combustible, a.combustible) && cont(d.marca, a.marca) && cont(d.modelo, a.modelo));
+  const por = ["marca", "segmento", "combustible"].includes(a.agrupar_por) ? a.agrupar_por : "modelo";
   const g = new Map();
   for (const d of sel) {
-    const k = [d.marca, d.modelo, d.combustible || "", d.segmento || ""].join("|");
-    const x = g.get(k) || { marca: d.marca, modelo: d.modelo, combustible: d.combustible || null, segmento: d.segmento || null, unidades: 0, _pv: 0, _pu: 0, _ps: 0, _pn: 0 };
+    const k = por === "modelo" ? [d.marca, d.modelo, d.combustible || "", d.segmento || ""].join("|") : sinTilde(d[por] || "sin dato");
+    const x = g.get(k) || (por === "modelo"
+      ? { marca: d.marca, modelo: d.modelo, combustible: d.combustible || null, segmento: d.segmento || null, unidades: 0, _pv: 0, _pu: 0, _ps: 0, _pn: 0 }
+      : { [por]: d[por] || "Sin dato", unidades: 0, _pv: 0, _pu: 0, _ps: 0, _pn: 0 });
     x.unidades += d.ventas;
     if (d.precio != null) { x._pv += d.precio * Math.max(d.ventas, 1); x._pu += Math.max(d.ventas, 1); x._ps += d.precio; x._pn++; }
     g.set(k, x);
   }
-  let out = [...g.values()].map((x) => ({ marca: x.marca, modelo: x.modelo, combustible: x.combustible, segmento: x.segmento, unidades: x.unidades, precio_promedio: x._pu ? Math.round(x._pv / x._pu) : null }));
+  const totalU = [...g.values()].reduce((s, x) => s + x.unidades, 0);
+  let out = [...g.values()].map((x) => {
+    const base = por === "modelo" ? { marca: x.marca, modelo: x.modelo, combustible: x.combustible, segmento: x.segmento } : { [por]: x[por] };
+    return { ...base, unidades: x.unidades, participacion_pct: totalU ? Number(((x.unidades / totalU) * 100).toFixed(1)) : 0, precio_promedio: x._pu ? Math.round(x._pv / x._pu) : null };
+  });
+  const conVentas = out.filter((x) => x.unidades > 0).length;
   if (a.orden === "precio_asc") out.sort((p, q) => (p.precio_promedio ?? Infinity) - (q.precio_promedio ?? Infinity));
   else if (a.orden === "precio_desc") out.sort((p, q) => (q.precio_promedio ?? -1) - (p.precio_promedio ?? -1));
   else out.sort((p, q) => q.unidades - p.unidades);
   const lim = Math.min(Math.max(parseInt(a.limite, 10) || 20, 1), 40);
   return {
     periodo: `${mm(desde)} a ${mm(hasta)}`,
+    agrupado_por: por,
     coincidencias: out.length,
+    con_ventas: conVentas,
     unidades_total: out.reduce((s, x) => s + x.unidades, 0),
     resultados: out.slice(0, lim),
-    nota: out.length ? "Precio = promedio ponderado por unidades en el período; es dato de mercado, no precio de lista de la empresa." : "Sin coincidencias: revisa los filtros (usa los valores exactos del contexto).",
+    nota: out.length ? (por === "modelo" ? "Cada fila es un modelo+combustible; para contar o rankear MARCAS usa agrupar_por='marca'. " : "") + "Precio = promedio ponderado por unidades en el período; es dato de mercado, no precio de lista de la empresa." : "Sin coincidencias: revisa los filtros (usa los valores exactos del contexto).",
   };
 }

@@ -1,4 +1,4 @@
-import { textoMercado } from "./mercado.js";
+import { textoMercado, TOOL_MERCADO, consultarMercado } from "./mercado.js";
 import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
@@ -122,6 +122,7 @@ function crearContexto(admin) {
       }
     }
 
+    let filasMercado = [];
     // Mercado: datos generales (empresa_id nulo) + los de la empresa. Se leen el año actual y el anterior.
     try {
       const filas = [];
@@ -139,11 +140,12 @@ function crearContexto(admin) {
       }
       const t = textoMercado(filas, (marcas.data || []).map((m) => m.marca));
       if (t) L.push(t);
+      filasMercado = filas;
     } catch {
       /* el mercado es opcional: si falla, el copiloto sigue sin esa sección */
     }
 
-    return { texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre };
+    return { texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre, filas: filasMercado };
   }
 
   return {
@@ -360,32 +362,48 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
       }
 
       let r;
+      const uso = { entrada: 0, salida: 0 };
       try {
-        r = await anthropic.messages.create({
-          model,
-          max_tokens: 2048,
-          system: [
-            { type: "text", text: await conocimiento.obtener(), cache_control: { type: "ephemeral" } },
-            { type: "text", text: ctx.texto, cache_control: { type: "ephemeral" } },
-            { type: "text", text: bloqueVendedor(p, sucursal) },
-          ],
-          messages,
-        });
+        const system = [
+          { type: "text", text: await conocimiento.obtener(), cache_control: { type: "ephemeral" } },
+          { type: "text", text: ctx.texto, cache_control: { type: "ephemeral" } },
+          { type: "text", text: bloqueVendedor(p, sucursal) },
+        ];
+        const tools = ctx.filas?.length ? [TOOL_MERCADO] : undefined;
+        const conv = [...messages];
+        for (let vuelta = 0; vuelta < 4; vuelta++) {
+          r = await anthropic.messages.create({ model, max_tokens: 2048, system, messages: conv, ...(tools && vuelta < 3 ? { tools } : {}) });
+          const u0 = r.usage || {};
+          uso.entrada += (u0.input_tokens || 0) + (u0.cache_creation_input_tokens || 0) + (u0.cache_read_input_tokens || 0);
+          uso.salida += u0.output_tokens || 0;
+          if (r.stop_reason !== "tool_use") break;
+          const llamadas = r.content.filter((b) => b.type === "tool_use");
+          if (!llamadas.length) break;
+          conv.push({ role: "assistant", content: r.content });
+          conv.push({
+            role: "user",
+            content: llamadas.map((c) => {
+              let out;
+              try { out = c.name === TOOL_MERCADO.name ? consultarMercado(ctx.filas, c.input || {}) : { error: "Herramienta desconocida" }; }
+              catch { out = { error: "No se pudo consultar" }; }
+              return { type: "tool_result", tool_use_id: c.id, content: JSON.stringify(out) };
+            }),
+          });
+        }
       } catch (e) {
         console.error(e);
         await registrar({ ...base_log, estado: "error", modelo: model });
         return res.status(500).json({ error: "Error del agente, intenta de nuevo" });
       }
 
-      const reply = r.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-      const u = r.usage || {};
+      const reply = r.content.filter((b) => b.type === "text").map((b) => b.text).join("") || "No pude armar la respuesta. Intenta de nuevo.";
       const log_id = await registrar({
         ...base_log,
         estado: "ok",
         respuesta: reply,
         modelo: model,
-        tokens_entrada: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0),
-        tokens_salida: u.output_tokens || 0,
+        tokens_entrada: uso.entrada,
+        tokens_salida: uso.salida,
       });
       res.json({ reply, log_id, usadas, limite });
     } catch (e) {

@@ -1,3 +1,4 @@
+import { textoMercado } from "./mercado.js";
 import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
@@ -121,6 +122,27 @@ function crearContexto(admin) {
       }
     }
 
+    // Mercado: datos generales (empresa_id nulo) + los de la empresa. Se leen los últimos 15 meses.
+    try {
+      const filas = [];
+      const desdeAnio = new Date().getFullYear() - 2;
+      for (let d = 0; d < 30000; d += 1000) {
+        const { data, error } = await admin
+          .from("ventas_mercado")
+          .select("empresa_id,anio,mes,marca,modelo,combustible,segmento,ventas,precio")
+          .or(`empresa_id.is.null,empresa_id.eq.${empresaId}`)
+          .gte("anio", desdeAnio)
+          .range(d, d + 999);
+        if (error) break;
+        filas.push(...(data || []));
+        if ((data || []).length < 1000) break;
+      }
+      const t = textoMercado(filas, (marcas.data || []).map((m) => m.marca));
+      if (t) L.push(t);
+    } catch {
+      /* el mercado es opcional: si falla, el copiloto sigue sin esa sección */
+    }
+
     return { texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre };
   }
 
@@ -183,7 +205,9 @@ function bloqueVendedor(perfil, sucursal) {
 export function createApp({ admin, newAnon, anthropic, base, model }) {
   const app = express();
   app.set("trust proxy", 1);
-  app.use(express.json({ limit: "100kb" }));
+  // El CSV de mercado puede ser grande; el resto de rutas se mantiene en 100 KB.
+  const jsonChico = express.json({ limit: "100kb" }), jsonGrande = express.json({ limit: "12mb" });
+  app.use((req, res, next) => (req.path === "/api/admin/mercado/importar" ? jsonGrande : jsonChico)(req, res, next));
   app.use(express.static("public"));
   const empresas = crearContexto(admin);
   const conocimiento = crearBase(admin, base);

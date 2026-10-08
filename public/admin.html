@@ -51,6 +51,7 @@
   <button data-t="usuarios" class="on">Usuarios</button>
   <button data-t="empresas">Empresas</button>
   <button data-t="conocimiento">Conocimiento global</button>
+  <button data-t="mercado">Mercado</button>
   <button data-t="consultas">Consultas</button>
 </nav>
 <main id="main">Cargando…</main>
@@ -104,7 +105,7 @@ async function iniciar() {
     pintar();
   });
 }
-const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, consultas: vConsultas })[tab]();
+const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, mercado: vMercado, consultas: vConsultas })[tab]();
 const optEmp = (sel) => '<option value="">— Sin empresa —</option>' + empresas.map(e => `<option value="${e.id}" ${e.id === sel ? "selected" : ""}>${esc(e.nombre)}</option>`).join("");
 const nomEmp = (id) => empresas.find(e => e.id === id)?.nombre || "—";
 const nomSuc = (id) => { for (const e of empresas) { const s = e.sucursales.find(x => x.id === id); if (s) return s.nombre; } return "—"; };
@@ -235,6 +236,56 @@ function formConocimiento(d) {
   });
   if (!nuevo) $("k_del").onclick = () => confirm("¿Eliminar este documento? (Puedes restaurar los 5 base desde los archivos.)") && act(async () => { await api("/api/admin/conocimiento/" + d.id, { method: "DELETE" }); vConocimiento(); });
   $("formK").scrollIntoView({ behavior: "smooth" });
+}
+
+// ======================= MERCADO (CSV) =======================
+const ymTxt = (p) => p ? String(p).slice(0, 4) + "-" + String(p).slice(4) : "—";
+async function leerArchivo(file) {
+  // Excel en español suele guardar en UTF-8 o en Windows-1252; probamos ambos.
+  const buf = await file.arrayBuffer();
+  let t = new TextDecoder("utf-8").decode(buf);
+  if (t.includes("\uFFFD")) t = new TextDecoder("windows-1252").decode(buf);
+  return t;
+}
+async function vMercado() {
+  await act(async () => {
+    if (!empresas.length) empresas = await api("/api/admin/empresas");
+    const cargas = await api("/api/admin/mercado");
+    $("main").innerHTML = `
+      <div class="panel"><h3 style="margin-top:0">Cargar base de mercado (CSV)</h3>
+        <p class="mut" style="margin-top:0">Columnas: <b>anio, mes, marca, modelo, combustible, segmento, cantidad, precio</b> (el orden de las columnas no importa; acepta coma o punto y coma; anio y mes son números, el mes 1-12). Si subes de nuevo un mes ya cargado de la misma fuente, lo reemplaza sin duplicar.</p>
+        <div class="grid">
+          <label>Destino<select id="m_dest"><option value="">🌎 Mercado general (todas las empresas, ej. AEADE)</option>${empresas.map(e => `<option value="${e.id}">${esc(e.nombre)} (solo esta empresa)</option>`).join("")}</select></label>
+          <label>Fuente (nombre para identificar la carga)<input id="m_fuente" value="AEADE" maxlength="60"></label>
+          <label>Archivo CSV<input id="m_file" type="file" accept=".csv,.txt,text/csv"></label>
+        </div>
+        <div class="row"><button class="s" id="m_plantilla">Descargar plantilla</button><button class="p" id="m_revisar">Revisar archivo</button></div>
+        <div id="m_res"></div>
+      </div>
+      <h3>Datos cargados</h3>
+      <div class="tablewrap"><table><thead><tr><th>Destino</th><th>Fuente</th><th>Filas</th><th>Unidades</th><th>Desde</th><th>Hasta</th><th></th></tr></thead><tbody>
+      ${cargas.map(c => `<tr><td>${c.empresa_id ? esc(nomEmp(c.empresa_id)) : "🌎 General"}</td><td>${esc(c.fuente)}</td><td>${c.filas.toLocaleString("es-EC")}</td><td>${c.unidades.toLocaleString("es-EC")}</td><td>${ymTxt(c.desde)}</td><td>${ymTxt(c.hasta)}</td><td><button class="s m_del" data-e="${c.empresa_id || ""}" data-f="${esc(c.fuente)}">Borrar</button></td></tr>`).join("") || '<tr><td colspan="7" class="mut">Aún no hay datos de mercado cargados</td></tr>'}
+      </tbody></table></div>`;
+    $("m_plantilla").onclick = () => {
+      const csv = "anio,mes,marca,modelo,combustible,segmento,cantidad,precio\n2026,9,Nissan,Kicks,Gasolina,SUV,120,25990\n2026,9,BYD,Dolphin,Eléctrico,Hatchback,45,28990\n";
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv" })); a.download = "plantilla_mercado.csv"; a.click();
+    };
+    const enviar = async (simular, aceptar) => {
+      const f = $("m_file").files[0]; if (!f) return aviso("Selecciona un archivo CSV", true);
+      const csv = await leerArchivo(f);
+      return api("/api/admin/mercado/importar", { method: "POST", body: { csv, empresa_id: $("m_dest").value || null, fuente: $("m_fuente").value, simular, aceptar_errores: !!aceptar } });
+    };
+    const pintarRes = (r, final) => {
+      $("m_res").innerHTML = `<div class="panel" style="margin-top:12px">
+        <b>${final ? "✅ Cargado" : "Revisión del archivo"}</b>: ${r.validas.toLocaleString("es-EC")} filas válidas de ${r.leidas.toLocaleString("es-EC")} · ${r.meses} meses (${ymTxt(r.desde)} a ${ymTxt(r.hasta)}) · ${r.marcas} marcas · ${r.modelos} modelos · ${r.unidades.toLocaleString("es-EC")} unidades
+        ${r.con_error ? `<p style="color:#c0392b;margin:8px 0 0">${r.con_error} filas con error:<br>${r.errores.map(esc).join("<br>")}${r.con_error > r.errores.length ? "<br>…" : ""}</p>` : ""}
+        ${final ? "" : `<div class="row"><button class="p" id="m_cargar">${r.con_error ? "Cargar solo las filas válidas" : "Cargar"}</button></div>`}</div>`;
+      if (!final) $("m_cargar").onclick = () => act(async () => { const x = await enviar(false, true); pintarRes(x, true); aviso("Mercado cargado ✓"); setTimeout(vMercado, 50); });
+    };
+    $("m_revisar").onclick = () => act(async () => { pintarRes(await enviar(true)); });
+    document.querySelectorAll(".m_del").forEach(b => b.onclick = () => confirm("¿Borrar esta carga completa?") && act(async () => {
+      await api("/api/admin/mercado/borrar", { method: "POST", body: { empresa_id: b.dataset.e || null, fuente: b.dataset.f } }); vMercado(); }));
+  });
 }
 
 // ======================= CONSULTAS =======================

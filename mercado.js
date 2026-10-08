@@ -116,8 +116,17 @@ export function textoMercado(filas, marcasPropias = []) {
   const prev = ventana.map((p) => p - 100);
   const totalPrev = datos.filter((d) => prev.includes(d.p)).reduce((s, d) => s + d.ventas, 0);
 
-  const L = [`\n## MERCADO AUTOMOTRIZ (datos cargados por el administrador; último mes disponible ${mm(ult)}; ventana ${mm(ventana[0])} a ${mm(ult)})`];
-  L.push(`Mercado total en la ventana: ${nf(total)} unidades` + (totalPrev ? ` (${((total / totalPrev - 1) * 100).toFixed(0)}% vs mismos meses del año anterior)` : "") + ".");
+  const porMes = new Map();
+  for (const d of datos) porMes.set(d.p, (porMes.get(d.p) || 0) + d.ventas);
+  const L = [`\n## MERCADO AUTOMOTRIZ (datos cargados por el administrador)`];
+  L.push(`Meses con datos: ${periodos.length} (entre ${mm(periodos[0])} a ${mm(ult)}). El último mes disponible es ${mm(ult)}. Si te preguntan cuántos meses o qué períodos hay, responde con ESTA línea; los análisis de abajo usan solo los últimos 3 meses (${mm(ventana[0])} a ${mm(ult)}) para mantener el texto corto.`);
+  L.push("Unidades totales por mes: " + periodos.map((p) => `${mm(p)} ${nf(porMes.get(p))}`).join("; ") + ".");
+  const anioUlt = Math.floor(ult / 100), mesUlt = ult % 100;
+  const acum = (a) => datos.filter((d) => d.anio === a && d.mes <= mesUlt).reduce((s, d) => s + d.ventas, 0);
+  const mesesAnt = new Set(datos.filter((d) => d.anio === anioUlt - 1 && d.mes <= mesUlt).map((d) => d.mes)).size;
+  if (mesesAnt === mesUlt) L.push(`Acumulado enero-${mm(ult).slice(5)} ${anioUlt}: ${nf(acum(anioUlt))} u. vs ${nf(acum(anioUlt - 1))} u. en ${anioUlt - 1} (${((acum(anioUlt) / acum(anioUlt - 1) - 1) * 100).toFixed(0)}%).`);
+  else L.push(`Acumulado ${anioUlt} (meses cargados): ${nf(acum(anioUlt))} u.`);
+  L.push(`Mercado total en la ventana de 3 meses: ${nf(total)} unidades` + (totalPrev ? ` (${((total / totalPrev - 1) * 100).toFixed(0)}% vs mismos meses del año anterior)` : "") + ".");
 
   const suma = (arr, key) => { const o = new Map(); for (const d of arr) { const k = key(d); o.set(k, (o.get(k) || 0) + d.ventas); } return [...o.entries()].sort((a, b) => b[1] - a[1]); };
   const segs = suma(w, (d) => d.segmento || "Sin segmento");

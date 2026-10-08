@@ -122,10 +122,10 @@ function crearContexto(admin) {
       }
     }
 
-    // Mercado: datos generales (empresa_id nulo) + los de la empresa. Se leen los últimos 15 meses.
+    // Mercado: datos generales (empresa_id nulo) + los de la empresa. Se leen el año actual y el anterior.
     try {
       const filas = [];
-      const desdeAnio = new Date().getFullYear() - 2;
+      const desdeAnio = new Date().getFullYear() - 1;
       for (let d = 0; d < 30000; d += 1000) {
         const { data, error } = await admin
           .from("ventas_mercado")

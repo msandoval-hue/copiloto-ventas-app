@@ -318,7 +318,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
       const empresaId = empresaDe(p, req.body?.empresa_id);
       if (!empresaId) return res.status(403).json({ error: "Tu usuario no tiene empresa asignada. Contacta al administrador." });
 
-      const messages = (req.body.messages || []).slice(-20).map((m) => ({
+      const messages = (req.body.messages || []).slice(-12).map((m) => ({
         role: m.role === "assistant" ? "assistant" : "user",
         content: String(m.content || "").slice(0, 4000),
       }));
@@ -364,7 +364,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
         const tools = ctx.filas?.length ? [TOOL_MERCADO] : undefined;
         const conv = [...messages];
         for (let vuelta = 0; vuelta < 4; vuelta++) {
-          r = await anthropic.messages.create({ model, max_tokens: 2048, system, messages: conv, ...(tools && vuelta < 3 ? { tools } : {}) });
+          r = await anthropic.messages.create({ model, max_tokens: 1200, system, messages: conv, ...(tools && vuelta < 3 ? { tools } : {}) });
           const u0 = r.usage || {};
           uso.entrada += (u0.input_tokens || 0) + (u0.cache_creation_input_tokens || 0) + (u0.cache_read_input_tokens || 0);
           uso.salida += u0.output_tokens || 0;

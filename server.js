@@ -363,11 +363,18 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
         ];
         const tools = ctx.filas?.length ? [TOOL_MERCADO] : undefined;
         const conv = [...messages];
-        for (let vuelta = 0; vuelta < 4; vuelta++) {
-          r = await anthropic.messages.create({ model, max_tokens: 1200, system, messages: conv, ...(tools && vuelta < 3 ? { tools } : {}) });
+        const RONDAS = 6; // la última ronda obliga a responder con lo que ya se consultó
+        let textos = "";
+        for (let vuelta = 0; vuelta < RONDAS; vuelta++) {
+          const ultima = vuelta === RONDAS - 1;
+          r = await anthropic.messages.create({
+            model, max_tokens: 2500, system, messages: conv,
+            ...(tools ? { tools, ...(ultima ? { tool_choice: { type: "none" } } : {}) } : {}),
+          });
           const u0 = r.usage || {};
           uso.entrada += (u0.input_tokens || 0) + (u0.cache_creation_input_tokens || 0) + (u0.cache_read_input_tokens || 0);
           uso.salida += u0.output_tokens || 0;
+          textos += r.content.filter((b) => b.type === "text").map((b) => b.text).join("");
           if (r.stop_reason !== "tool_use") break;
           const llamadas = r.content.filter((b) => b.type === "tool_use");
           if (!llamadas.length) break;
@@ -382,13 +389,15 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
             }),
           });
         }
+        r.__textos = textos;
       } catch (e) {
         console.error(e);
         await registrar({ ...base_log, estado: "error", modelo: model });
         return res.status(500).json({ error: "Error del agente, intenta de nuevo" });
       }
 
-      const reply = r.content.filter((b) => b.type === "text").map((b) => b.text).join("") || "No pude armar la respuesta. Intenta de nuevo.";
+      const final = r.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+      const reply = final || r.__textos || "No pude armar la respuesta. Intenta de nuevo.";
       const log_id = await registrar({
         ...base_log,
         estado: "ok",

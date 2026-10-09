@@ -204,7 +204,7 @@ async function vConocimiento() {
     $("main").innerHTML = `<h2>Conocimiento global</h2>
       <p class="mut">Metodologías, expertos, datos de mercado, triggers y buenas prácticas. Sirven a <b>todas</b> las empresas y se aplican en máximo 1 minuto tras guardar.
       Tamaño activo: ${total.toLocaleString("es-EC")} caracteres (≈ ${Math.round(total / 3.6).toLocaleString("es-EC")} tokens por consulta; se cachea para abaratar).</p>
-      <div class="row"><button class="s" id="imp">Importar archivos base (solo agrega los que faltan)</button><button class="d" id="imp2">Restaurar desde archivos (sobrescribe)</button><button class="p" id="nuevoK">+ Nuevo documento</button></div>
+      <div class="row"><button class="s" id="imp">Importar archivos base (solo agrega los que faltan)</button><button class="d" id="imp2">Restaurar desde archivos (sobrescribe)</button><button class="p" id="nuevoK">+ Nuevo documento</button><button class="s" id="subirK">⬆ Subir archivo .md</button><input type="file" id="fileK" accept=".md,.txt,text/markdown,text/plain" style="display:none"></div>
       <div id="formK"></div>
       <div class="tablewrap"><table><thead><tr><th>Orden</th><th>Documento</th><th>Clave</th><th>Caracteres</th><th>Estado</th><th>Actualizado</th></tr></thead><tbody>
       ${conocimiento.map(d => `<tr class="click" data-id="${d.id}"><td>${d.orden}</td><td>${esc(d.titulo)}</td><td>${esc(d.clave)}</td><td>${d.largo.toLocaleString("es-EC")}</td>
@@ -215,6 +215,16 @@ async function vConocimiento() {
     $("imp").onclick = () => importar(false);
     $("imp2").onclick = () => confirm("Esto reemplaza el contenido de los 5 documentos base por los archivos del repositorio y pierde tus ediciones en ellos. ¿Continuar?") && importar(true);
     $("nuevoK").onclick = () => formConocimiento(null);
+    $("subirK").onclick = () => $("fileK").click();
+    $("fileK").onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const texto = (await f.text()).replace(/^\uFEFF/, "");
+      const clave = f.name.replace(/\.[^.]+$/, "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const ex = conocimiento.find(d => d.clave === clave);
+      if (ex) { formConocimiento({ ...ex, contenido: texto }); aviso("Ya existía «" + ex.titulo + "»: revisa el contenido nuevo y pulsa Guardar para reemplazarlo."); }
+      else { formConocimiento(null); $("k_clave").value = clave; $("k_titulo").value = clave.replace(/-/g, " ").replace(/^./, c => c.toUpperCase()); $("k_cont").value = texto; aviso("Archivo cargado: revisa y pulsa Guardar."); }
+      e.target.value = "";
+    };
     document.querySelectorAll("#main tr.click").forEach(tr => tr.onclick = () => formConocimiento(conocimiento.find(d => d.id === tr.dataset.id)));
   });
 }

@@ -41,6 +41,16 @@
   form#f button { background:var(--brand); color:#fff; border:0; border-radius:10px; padding:0 18px; font-weight:600; cursor:pointer; }
   form#f button:disabled { opacity:.5; }
   /* Pantalla de acceso */
+  #casAviso { background:#fff4e0; color:#8a5200; border-bottom:1px solid #f2d9a6; padding:8px 14px; font-size:13px; align-items:center; justify-content:space-between; gap:10px; }
+  #casAviso button { background:#0b5fff; color:#fff; border:0; border-radius:8px; padding:5px 12px; cursor:pointer; font:inherit; font-size:13px; }
+  .badge { background:#ff5a4f; color:#fff; border-radius:10px; padding:0 6px; margin-left:5px; font-size:11px; }
+  #casillero { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:flex-end; justify-content:center; z-index:9; }
+  #casillero .box { background:#fff; width:100%; max-width:560px; max-height:85vh; overflow:auto; border-radius:14px 14px 0 0; padding:16px; }
+  #casillero h2 { margin:0 0 4px; font-size:18px; } #casillero .mut { color:#6b7787; font-size:13px; }
+  .arch { border:1px solid #e1e6ec; border-radius:10px; padding:10px 12px; margin:10px 0; display:flex; gap:10px; align-items:center; }
+  .arch .info { flex:1; min-width:0; } .arch b { font-size:14px; } .arch small { display:block; color:#6b7787; font-size:12px; margin-top:2px; }
+  .arch button { background:#0b5fff; color:#fff; border:0; border-radius:8px; padding:8px 12px; cursor:pointer; font:inherit; font-size:13px; white-space:nowrap; }
+  .nuevo { background:#ff5a4f; color:#fff; border-radius:8px; padding:0 6px; font-size:11px; margin-left:6px; }
   #login { position:fixed; inset:0; background:var(--bg); display:none; align-items:center; justify-content:center; padding:16px; z-index:10; }
   #login .box { background:#fff; border-radius:14px; box-shadow:0 4px 18px rgba(0,0,0,.12); padding:24px; width:100%; max-width:340px; display:flex; flex-direction:column; gap:12px; }
   #login h2 { margin:0; font-size:20px; }
@@ -58,6 +68,7 @@
     <div class="right">
       <select id="empresa" style="display:none"></select>
       <a id="adminlink" href="/admin.html" style="display:none">⚙️ Admin</a>
+      <button id="casBtn">📁 Casillero<span id="casN" class="badge" style="display:none"></span></button>
       <button id="reset">Nueva consulta</button>
       <button id="salir">Salir</button>
     </div>
@@ -70,6 +81,7 @@
     </div>
   </div>
 </header>
+<div id="casAviso" style="display:none"><span id="casAvisoT"></span><button id="casAvisoB">Ver</button></div>
 <div id="chat"></div>
 <div id="chips">
   <button>Un cliente no me responde, ¿qué le escribo?</button>
@@ -80,6 +92,12 @@
   <textarea id="t" rows="1" placeholder="Cuéntame tu situación con el cliente..."></textarea>
   <button id="send">Enviar</button>
 </form>
+
+<div id="casillero"><div class="box">
+  <h2>📁 Mi casillero</h2><p class="mut">Material que tu administrador dejó para ti.</p>
+  <div id="casLista"></div>
+  <button id="casCerrar" style="width:100%;margin-top:6px;padding:10px;border:0;border-radius:8px;background:#e9eef5;cursor:pointer;font:inherit">Cerrar</button>
+</div></div>
 
 <div id="login">
   <form class="box" id="lf">
@@ -103,7 +121,7 @@ let empresaSel = "";     // solo administrador
 
 // ---------- sesión (guardada en este navegador) ----------
 function getSess() { try { return JSON.parse(localStorage.getItem("sess") || "null"); } catch { return null; } }
-function setSess(s) { try { s ? localStorage.setItem("sess", JSON.stringify(s)) : localStorage.removeItem("sess"); } catch {} }
+function setSess(s) { try { if (s) { localStorage.setItem("sess", JSON.stringify(s)); localStorage.setItem("ult_act", String(Date.now())); } else localStorage.removeItem("sess"); } catch {} }
 
 async function refrescar() {
   const s = getSess(); if (!s?.refresh_token) return false;
@@ -123,7 +141,8 @@ async function api(path, opts = {}, reintento = true) {
   return r;
 }
 
-function mostrarLogin(msg) { $("lerr").textContent = msg || ""; $("login").style.display = "flex"; $("le").focus(); }
+const IDLE_MSG = (() => { try { const v = sessionStorage.getItem("idle"); sessionStorage.removeItem("idle"); return v ? "Tu sesión se cerró por inactividad. Ingresa de nuevo." : ""; } catch { return ""; } })();
+function mostrarLogin(msg) { $("lerr").textContent = msg || IDLE_MSG; $("login").style.display = "flex"; $("le").focus(); }
 
 $("lf").onsubmit = async (e) => {
   e.preventDefault(); $("lb").disabled = true; $("lerr").textContent = "";
@@ -137,6 +156,29 @@ $("lf").onsubmit = async (e) => {
 };
 
 $("salir").onclick = () => { setSess(null); sessionStorage.removeItem("h"); location.reload(); };
+
+// ---------- cierre automático por inactividad ----------
+const IDLE_MS = 2 * 60 * 60 * 1000; // 2 horas sin actividad
+(function () {
+  const K = "ult_act";
+  const marcar = () => { try { localStorage.setItem(K, String(Date.now())); } catch {} };
+  const revisar = () => {
+    let t = 0; try { t = Number(localStorage.getItem(K)) || 0; } catch {}
+    if (!getSess()) return;
+    if (!t) return marcar();
+    if (Date.now() - t > IDLE_MS) {
+      setSess(null); try { sessionStorage.removeItem("h"); sessionStorage.setItem("idle", "1"); } catch {}
+      location.reload();
+    }
+  };
+  let ult = 0;
+  const actividad = () => { const n = Date.now(); if (n - ult > 15000) { ult = n; marcar(); } };
+  ["pointerdown", "keydown", "touchstart", "scroll", "click"].forEach(ev => addEventListener(ev, actividad, { passive: true, capture: true }));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) revisar(); });
+  setInterval(revisar, 60000);
+  revisar(); if (getSess() && !localStorage.getItem(K)) marcar();
+})();
+
 
 // ---------- encabezado: nombre, cupo diario, empresa (admin) ----------
 const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
@@ -262,11 +304,50 @@ function saludo() {
   $("chips").style.display = "";
 }
 
+// ---------- casillero ----------
+const kbc = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+const escH = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let casArchivos = [];
+function pintarBadge(n) {
+  const b = $("casN"); b.textContent = n; b.style.display = n > 0 ? "" : "none";
+  $("casAvisoT").textContent = n === 1 ? "📁 Tienes 1 archivo nuevo en tu casillero" : "📁 Tienes " + n + " archivos nuevos en tu casillero";
+  $("casAviso").style.display = n > 0 ? "flex" : "none";
+}
+async function cargarCasillero() {
+  try {
+    const r = await api("/api/casillero"); if (!r.ok) return;
+    const j = await r.json(); casArchivos = j.archivos; pintarBadge(j.nuevos); pintarCasillero();
+  } catch {}
+}
+function pintarCasillero() {
+  $("casLista").innerHTML = casArchivos.length ? casArchivos.map(a => `<div class="arch"><div class="info"><b>${escH(a.titulo)}</b>${a.nuevo ? '<span class="nuevo">Nuevo</span>' : ""}
+    <small>${escH(a.categoria)} · ${kbc(a.tamano)} · ${new Date(a.fecha).toLocaleDateString("es-EC")}</small>${a.descripcion ? `<small>${escH(a.descripcion)}</small>` : ""}</div>
+    <button data-id="${a.id}">Descargar</button></div>`).join("") : '<p class="mut">Tu casillero está vacío por ahora.</p>';
+  document.querySelectorAll("#casLista button").forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = "…";
+    try {
+      const r = await api("/api/casillero/" + b.dataset.id + "/descargar", { method: "POST" }); const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "No se pudo descargar");
+      const a = document.createElement("a"); a.href = j.url; a.download = j.nombre || ""; document.body.appendChild(a); a.click(); a.remove();
+      const f = casArchivos.find(x => x.id === b.dataset.id); if (f) f.nuevo = false;
+      pintarBadge(casArchivos.filter(x => x.nuevo).length); setTimeout(pintarCasillero, 400);
+    } catch (e) { alert(e.message); b.disabled = false; b.textContent = "Descargar"; }
+  });
+}
+$("casAvisoB").onclick = () => $("casBtn").click();
+$("casBtn").onclick = () => { $("casillero").style.display = "flex"; cargarCasillero(); };
+// se actualiza solo: cada 5 minutos y al volver a la pestaña
+setInterval(() => { if (getSess() && !document.hidden) cargarCasillero(); }, 5 * 60 * 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && getSess()) cargarCasillero(); });
+$("casCerrar").onclick = () => $("casillero").style.display = "none";
+$("casillero").onclick = (e) => { if (e.target.id === "casillero") $("casillero").style.display = "none"; };
+
 async function iniciar() {
   if (!(await cargarMe())) return;
   chat.innerHTML = "";
   if (history.length) { $("chips").style.display = "none"; history.forEach(m => render(m.role, m.content)); }
   else saludo();
+  cargarCasillero();
   pintarCupo(me.usadas, me.limite); // si ya no le quedan consultas, deja el aviso y bloquea el envío
 }
 

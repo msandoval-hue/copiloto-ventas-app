@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "fs";
 import { pathToFileURL } from "url";
+import { registrarCasillero } from "./casillero.js";
 import { registrarAdmin } from "./admin.js";
 
 const TZ = "America/Guayaquil";
@@ -311,6 +312,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
   // La descripción y el teléfono del asesor los define solo el administrador (desde la pestaña Usuarios).
 
   registrarAdmin(app, { admin, auth, invalidarEmpresas: empresas.invalidar, invalidarBase: conocimiento.invalidar });
+  registrarCasillero(app, { admin, auth });
 
   app.post("/api/chat", auth, async (req, res) => {
     const p = req.perfil;

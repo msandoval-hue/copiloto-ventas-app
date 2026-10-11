@@ -52,6 +52,7 @@
   <button data-t="empresas">Empresas</button>
   <button data-t="conocimiento">Conocimiento global</button>
   <button data-t="mercado">Mercado</button>
+  <button data-t="casillero">Casillero</button>
   <button data-t="consultas">Consultas</button>
 </nav>
 <main id="main">Cargando…</main>
@@ -71,7 +72,7 @@ let tab = "usuarios", empresas = [], usuarios = [], conocimiento = [], yo = null
 
 // ---------- sesión ----------
 const getSess = () => { try { return JSON.parse(localStorage.getItem("sess") || "null"); } catch { return null; } };
-const setSess = (s) => { try { s ? localStorage.setItem("sess", JSON.stringify(s)) : localStorage.removeItem("sess"); } catch {} };
+const setSess = (s) => { try { if (s) { localStorage.setItem("sess", JSON.stringify(s)); localStorage.setItem("ult_act", String(Date.now())); } else localStorage.removeItem("sess"); } catch {} };
 async function refrescar() {
   const s = getSess(); if (!s?.refresh_token) return false;
   try { const r = await fetch("/api/refresh", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ refresh_token: s.refresh_token }) });
@@ -95,6 +96,29 @@ $("lf").onsubmit = (e) => { e.preventDefault(); act(async () => {
   setSess(j); $("lp").value = ""; $("login").style.display = "none"; iniciar();
 }); };
 $("salir").onclick = () => { setSess(null); location.href = "/"; };
+
+// ---------- cierre automático por inactividad ----------
+const IDLE_MS = 2 * 60 * 60 * 1000; // 2 horas sin actividad
+(function () {
+  const K = "ult_act";
+  const marcar = () => { try { localStorage.setItem(K, String(Date.now())); } catch {} };
+  const revisar = () => {
+    let t = 0; try { t = Number(localStorage.getItem(K)) || 0; } catch {}
+    if (!getSess()) return;
+    if (!t) return marcar();
+    if (Date.now() - t > IDLE_MS) {
+      setSess(null); try { sessionStorage.removeItem("h"); sessionStorage.setItem("idle", "1"); } catch {}
+      location.href = "/";
+    }
+  };
+  let ult = 0;
+  const actividad = () => { const n = Date.now(); if (n - ult > 15000) { ult = n; marcar(); } };
+  ["pointerdown", "keydown", "touchstart", "scroll", "click"].forEach(ev => addEventListener(ev, actividad, { passive: true, capture: true }));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) revisar(); });
+  setInterval(revisar, 60000);
+  revisar(); if (getSess() && !localStorage.getItem(K)) marcar();
+})();
+
 $("tabs").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; tab = b.dataset.t;
   document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b)); pintar(); };
 
@@ -105,7 +129,7 @@ async function iniciar() {
     pintar();
   });
 }
-const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, mercado: vMercado, consultas: vConsultas })[tab]();
+const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, mercado: vMercado, casillero: vCasillero, consultas: vConsultas })[tab]();
 const optEmp = (sel) => '<option value="">— Sin empresa —</option>' + empresas.map(e => `<option value="${e.id}" ${e.id === sel ? "selected" : ""}>${esc(e.nombre)}</option>`).join("");
 const nomEmp = (id) => empresas.find(e => e.id === id)?.nombre || "—";
 const nomSuc = (id) => { for (const e of empresas) { const s = e.sucursales.find(x => x.id === id); if (s) return s.nombre; } return "—"; };
@@ -193,6 +217,73 @@ async function vEmpresas() {
       p.querySelectorAll(".s_del").forEach(b => b.onclick = () => confirm("¿Eliminar la sucursal? Los usuarios asignados quedarán sin sucursal.") && act(async () => { await api("/api/admin/sucursales/" + b.dataset.id, { method: "DELETE" }); vEmpresas(); }));
       p.querySelectorAll(".m_del").forEach(b => b.onclick = () => act(async () => { await api("/api/admin/marcas/" + b.dataset.id, { method: "DELETE" }); vEmpresas(); }));
     });
+  });
+}
+
+
+// ======================= CASILLERO =======================
+const CATS = ["Mercado", "Productos", "Capacitación", "Promociones", "Otros"];
+const kb = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+async function subirArchivo(url, file, reintento = true) {
+  const s = getSess();
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/octet-stream", Authorization: "Bearer " + (s?.access_token || "") }, body: file });
+  if (r.status === 401 && reintento && await refrescar()) return subirArchivo(url, file, false);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || "No se pudo subir el archivo");
+  return j;
+}
+async function vCasillero() {
+  await act(async () => {
+    let lista, vend;
+    [empresas, usuarios, lista] = await Promise.all([api("/api/admin/empresas"), api("/api/admin/usuarios"), api("/api/admin/casillero")]);
+    vend = usuarios.filter(u => u.rol === "vendedor" && u.activo);
+    const destino = (a) => a.alcance === "todas" ? "Todas las empresas" : a.alcance === "empresa" ? "Empresa: " + (a.empresa || "—") : a.alcance === "sucursal" ? "Sucursal: " + (a.sucursal || "—") : "Vendedor: " + (a.vendedor || "—");
+    $("main").innerHTML = `<h2>Casillero</h2>
+      <p class="mut">Archivos que los vendedores pueden descargar desde su pantalla (compendios, material de mercado, fichas de producto…). Máximo 25 MB. PDF, Word, Excel, PowerPoint, CSV, TXT, imágenes y MP4.</p>
+      <div class="panel"><h3 style="margin-top:0">Subir archivo</h3>
+        <div class="grid">
+          <label>Título<input id="c_tit" maxlength="150"></label>
+          <label>Categoría<select id="c_cat">${CATS.map(c => `<option>${c}</option>`).join("")}</select></label>
+          <label>¿Para quién?<select id="c_alc"><option value="todas">Todas las empresas</option><option value="empresa">Una empresa</option><option value="sucursal">Una sucursal</option><option value="vendedor">Un vendedor</option></select></label>
+          <label id="c_wemp" style="display:none">Empresa<select id="c_emp">${empresas.map(e => `<option value="${e.id}">${esc(e.nombre)}</option>`).join("")}</select></label>
+          <label id="c_wsuc" style="display:none">Sucursal<select id="c_suc">${empresas.flatMap(e => e.sucursales.map(x => `<option value="${x.id}">${esc(e.nombre)} · ${esc(x.nombre)}</option>`)).join("")}</select></label>
+          <label id="c_wven" style="display:none">Vendedor<select id="c_ven">${vend.map(u => `<option value="${u.id}">${esc(u.nombre)} (${esc(nomEmp(u.empresa_id))})</option>`).join("")}</select></label>
+        </div>
+        <label style="margin-top:10px">Descripción (opcional, qué es y por qué leerlo)<textarea id="c_desc" rows="2" maxlength="400"></textarea></label>
+        <label style="margin-top:10px">Archivo<input id="c_file" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.md,.png,.jpg,.jpeg,.mp4"></label>
+        <div class="row"><button class="p" id="c_ok">Subir al casillero</button><span class="mut" id="c_est"></span></div></div>
+      <div id="c_det"></div>
+      <div class="tablewrap"><table><thead><tr><th>Título</th><th>Categoría</th><th>Para</th><th>Tamaño</th><th>Descargas</th><th>Estado</th><th>Subido</th><th></th></tr></thead><tbody>
+      ${lista.map(a => `<tr data-id="${a.id}"><td class="click" data-ver="${a.id}"><b>${esc(a.titulo)}</b><br><span class="mut">${esc(a.nombre_original)}</span></td><td>${esc(a.categoria)}</td><td>${esc(destino(a))}</td><td>${kb(a.tamano)}</td>
+        <td class="click" data-ver="${a.id}">${a.descargaron}/${a.destinatarios}</td><td><span class="tag ${a.activo ? "ok" : "bad"}">${a.activo ? "visible" : "oculto"}</span></td><td>${new Date(a.created_at).toLocaleDateString("es-EC")}</td>
+        <td><button class="s" data-tog="${a.id}">${a.activo ? "Ocultar" : "Mostrar"}</button> <button class="d" data-del="${a.id}">Eliminar</button></td></tr>`).join("")}
+      </tbody></table></div>${lista.length ? '<p class="mut">Pulsa el título o las descargas para ver quién lo descargó y quién no.</p>' : '<p class="mut">Aún no hay archivos.</p>'}`;
+    const alc = () => { const v = $("c_alc").value; $("c_wemp").style.display = v === "empresa" ? "" : "none"; $("c_wsuc").style.display = v === "sucursal" ? "" : "none"; $("c_wven").style.display = v === "vendedor" ? "" : "none"; };
+    $("c_alc").onchange = alc; alc();
+    $("c_ok").onclick = () => act(async () => {
+      const f = $("c_file").files[0];
+      if (!$("c_tit").value.trim()) throw new Error("Escribe un título");
+      if (!f) throw new Error("Elige un archivo");
+      if (f.size > 25 * 1024 * 1024) throw new Error("El archivo supera los 25 MB");
+      const al = $("c_alc").value;
+      const q = new URLSearchParams({ titulo: $("c_tit").value, descripcion: $("c_desc").value, categoria: $("c_cat").value, alcance: al, nombre: f.name });
+      if (al === "empresa") q.set("empresa_id", $("c_emp").value);
+      if (al === "sucursal") q.set("sucursal_id", $("c_suc").value);
+      if (al === "vendedor") q.set("vendedor_id", $("c_ven").value);
+      $("c_ok").disabled = true; $("c_est").textContent = "Subiendo…";
+      try { await subirArchivo("/api/admin/casillero/subir?" + q, f); aviso("Archivo subido ✓"); vCasillero(); }
+      finally { $("c_ok").disabled = false; $("c_est") && ($("c_est").textContent = ""); }
+    });
+    document.querySelectorAll("[data-tog]").forEach(b => b.onclick = () => act(async () => {
+      const a = lista.find(x => x.id === b.dataset.tog); await api("/api/admin/casillero/" + a.id, { method: "PATCH", body: { activo: !a.activo } }); vCasillero(); }));
+    document.querySelectorAll("[data-del]").forEach(b => b.onclick = () => confirm("¿Eliminar este archivo? Los vendedores ya no podrán descargarlo.") && act(async () => {
+      await api("/api/admin/casillero/" + b.dataset.del, { method: "DELETE" }); aviso("Eliminado"); vCasillero(); }));
+    document.querySelectorAll("[data-ver]").forEach(td => td.onclick = () => act(async () => {
+      const a = lista.find(x => x.id === td.dataset.ver); const d = await api("/api/admin/casillero/" + a.id + "/descargas");
+      $("c_det").innerHTML = `<div class="panel"><h3 style="margin-top:0">${esc(a.titulo)} · ${a.descargaron}/${a.destinatarios} lo descargaron</h3>
+        ${d.length ? d.map(x => `<span class="chip">${esc(x.nombre)} · ${x.descargado ? "✓ " + new Date(x.descargado).toLocaleString("es-EC") : "<b style='color:#c0392b'>no lo ha descargado</b>"}</span>`).join("") : '<p class="mut">No hay vendedores activos que lo reciban.</p>'}
+        <div class="row"><button class="s" id="c_cerrar">Cerrar</button></div></div>`;
+      $("c_cerrar").onclick = () => $("c_det").innerHTML = ""; $("c_det").scrollIntoView({ behavior: "smooth" }); }));
   });
 }
 

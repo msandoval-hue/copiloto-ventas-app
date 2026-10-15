@@ -54,6 +54,7 @@
   <button data-t="mercado">Mercado</button>
   <button data-t="casillero">Casillero</button>
   <button data-t="consultas">Consultas</button>
+  <button data-t="calidad">Calidad de preguntas</button>
 </nav>
 <main id="main">Cargando…</main>
 <div id="msg"></div>
@@ -129,7 +130,7 @@ async function iniciar() {
     pintar();
   });
 }
-const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, mercado: vMercado, casillero: vCasillero, consultas: vConsultas })[tab]();
+const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, mercado: vMercado, casillero: vCasillero, consultas: vConsultas, calidad: vCalidad })[tab]();
 const optEmp = (sel) => '<option value="">— Sin empresa —</option>' + empresas.map(e => `<option value="${e.id}" ${e.id === sel ? "selected" : ""}>${esc(e.nombre)}</option>`).join("");
 const nomEmp = (id) => empresas.find(e => e.id === id)?.nombre || "—";
 const nomSuc = (id) => { for (const e of empresas) { const s = e.sucursales.find(x => x.id === id); if (s) return s.nombre; } return "—"; };
@@ -407,6 +408,58 @@ async function vConsultas() {
         <span class="tag ${l.estado === "ok" ? "ok" : "bad"}">${l.estado}</span> ${l.util === true ? "👍" : l.util === false ? "👎" : ""}</summary>
         <div class="mut">Pregunta</div><pre class="txt">${esc(l.pregunta)}</pre><div class="mut">Respuesta (${l.tokens_entrada ?? 0} / ${l.tokens_salida ?? 0} tokens)</div><pre class="txt">${esc(l.respuesta || "—")}</pre></details>`).join("") || '<p class="mut">Sin registros</p>'}`;
     $("dias").onchange = vConsultas;
+  });
+}
+
+// ======================= CALIDAD DE PREGUNTAS =======================
+const COL_NIVEL = { mejorar: "#e5584e", camino: "#f2b134", bien: "#8fcf7d", excelente: "#2e9d57" };
+const colPct = (p) => p >= 70 ? "#2e9d57" : p >= 40 ? "#f2b134" : "#e5584e";
+const chipNivel = (n) => n ? `<span class="tag" style="background:${COL_NIVEL[n.clave]}22;color:#1b2430;border:1px solid ${COL_NIVEL[n.clave]}">${n.texto}</span>` : '<span class="tag">Sin casos</span>';
+const flecha = (c) => c == null ? '<span class="mut">—</span>' : c > 0 ? `<span style="color:#2e9d57">▲ ${c}</span>` : c < 0 ? `<span style="color:#e5584e">▼ ${-c}</span>` : '<span class="mut">=</span>';
+function spark(serie) {
+  if (!serie?.length) return "";
+  const pts = serie.map((v, i) => `${serie.length > 1 ? (i * 70) / (serie.length - 1) : 35},${22 - v * 0.2}`).join(" ");
+  return `<svg width="74" height="24" viewBox="0 0 74 24"><polyline points="${pts}" fill="none" stroke="#0b5fff" stroke-width="1.6"/></svg>`;
+}
+const barra = (v, color) => `<span style="display:inline-block;width:70px;height:8px;background:#eef1f5;border-radius:4px;vertical-align:middle;overflow:hidden"><i style="display:block;width:${v}%;height:100%;background:${color}"></i></span>`;
+
+async function vCalidad() {
+  await act(async () => {
+    if (!empresas.length) empresas = await api("/api/admin/empresas");
+    const dias = Number($("cdias")?.value || 30), emp = $("cemp")?.value || "";
+    const r = await api(`/api/admin/calidad?dias=${dias}` + (emp ? "&empresa_id=" + encodeURIComponent(emp) : ""));
+    const e = r.equipo, crit = [...e.criterios].filter(c => c.pct != null).sort((a, b) => a.pct - b.pct);
+    $("main").innerHTML = `<h2>Calidad de las preguntas</h2>
+      <p class="mut" style="margin-top:-6px">Qué tan completo cuenta cada asesor su caso al copiloto, según la Guía del vendedor. Se evalúa el primer mensaje de cada consulta sobre un cliente. El asesor solo ve su termómetro; el detalle es tuyo.</p>
+      <div class="row">
+        <label style="flex-direction:row;align-items:center;gap:8px">Últimos <select id="cdias" style="width:auto">${[7,15,30,60,90].map(n => `<option ${n === dias ? "selected" : ""}>${n}</option>`).join("")}</select> días</label>
+        ${empresas.length > 1 ? `<label style="flex-direction:row;align-items:center;gap:8px">Empresa <select id="cemp" style="width:auto"><option value="">Todas</option>${empresas.map(x => `<option value="${x.id}" ${x.id === emp ? "selected" : ""}>${esc(x.nombre)}</option>`).join("")}</select></label>` : ""}
+      </div>
+      <div class="grid">
+        <div class="panel"><div class="mut">Nota del equipo</div><div style="font-size:34px;font-weight:700">${e.valor ?? "—"}<span style="font-size:15px;color:#6b7787"> / 100</span></div><div>${e.valor != null && e.anterior != null ? flecha(e.valor - e.anterior) + ' <span class="mut">vs. período anterior</span>' : '<span class="mut">sin período anterior</span>'}</div></div>
+        <div class="panel"><div class="mut">Consultas evaluadas</div><div style="font-size:34px;font-weight:700">${e.evaluadas}</div><div class="mut">de ${e.consultas} consultas del período</div></div>
+        <div class="panel"><div class="mut">Asesores por nivel</div><div style="line-height:2">${["excelente","bien","camino","mejorar"].map(k => `${chipNivel({ clave: k, texto: { excelente: "Excelente", bien: "Bien", camino: "En camino", mejorar: "Por mejorar" }[k] })} <b>${e.niveles[k]}</b>`).join("<br>")}</div></div>
+      </div>
+      ${e.sensibles ? `<div class="panel" style="border-color:#f2b134;background:#fff8e8">⚠️ <b>${e.sensibles}</b> consulta(s) con datos sensibles (cédula, cuenta, teléfono o buró). Revísalas en el detalle de cada asesor y recuérdales la sección 7 de la guía.</div>` : ""}
+      <h3>Qué debe mejorar el equipo <span class="mut" style="font-weight:400">(de lo más flojo a lo más fuerte; sugiere el tema de la próxima capacitación)</span></h3>
+      ${crit.map(c => `<div style="display:grid;grid-template-columns:200px 120px 1fr;gap:8px;align-items:center;margin:4px 0;font-size:13px"><span>${esc(c.n)}</span><span>${barra(c.pct, colPct(c.pct))} <b>${c.pct}%</b></span><span class="mut">${c.pct < 70 ? esc(c.tip) : ""}</span></div>`).join("") || '<p class="mut">Aún no hay consultas evaluadas en el período.</p>'}
+      <h3>Ranking por asesor <span class="mut" style="font-weight:400">(toca un asesor para ver sus preguntas)</span></h3>
+      <div class="tablewrap"><table><thead><tr><th>#</th><th>Asesor</th><th>Sucursal</th><th>Evaluadas</th><th>Nota</th><th>Nivel</th><th>vs. anterior</th><th>Tendencia</th><th>Qué debe mejorar</th><th></th></tr></thead><tbody>
+      ${r.vendedores.map((v, i) => `<tr class="click" data-id="${v.id}"><td>${v.valor != null ? i + 1 : ""}</td><td><b>${esc(v.nombre)}</b></td><td>${esc(v.sucursal)}</td><td>${v.evaluadas}<span class="mut"> / ${v.consultas}</span></td>
+        <td>${v.valor != null ? barra(v.valor, COL_NIVEL[v.nivel.clave]) + " <b>" + v.valor + "</b>" : "—"}</td><td>${chipNivel(v.nivel)}</td><td>${flecha(v.cambio)}</td><td>${spark(v.serie)}</td>
+        <td>${v.mejorar.map(m => `${esc(m.n)} <span class="mut">(${m.pct}%)</span>`).join("<br>") || (v.valor != null ? '<span class="mut">Va completo ✓</span>' : '<span class="mut">Sin casos evaluados</span>')}</td><td>${v.sensibles ? `<span title="Datos sensibles">⚠️ ${v.sensibles}</span>` : ""}</td></tr>`).join("") || '<tr><td colspan="10" class="mut">Sin asesores</td></tr>'}
+      </tbody></table></div>
+      <div id="cdet"></div>
+      <p class="mut">Cómo se mide: 10 criterios de la Guía del vendedor (modelo 15, qué quiere lograr 20, tiempo 10, visitas 5, pago 15, score 5, usado 5, última conversación 15, quién decide 5, competencia/urgencia 5). "Score" y "usado" solo cuentan si aplican. Niveles: 85+ Excelente, 70-84 Bien, 40-69 En camino, menos de 40 Por mejorar. La nota la calcula un modelo pequeño; úsala como guía de coaching, no como evaluación de desempeño.</p>`;
+    $("cdias").onchange = vCalidad; if ($("cemp")) $("cemp").onchange = vCalidad;
+    document.querySelectorAll("#main tr.click").forEach(tr => tr.onclick = () => act(async () => {
+      const d = await api(`/api/admin/calidad/vendedor/${tr.dataset.id}?dias=${dias}`);
+      const nombre = tr.querySelector("b").textContent;
+      $("cdet").innerHTML = `<h3>Preguntas evaluadas de ${esc(nombre)}</h3>` + (d.map(x => `<details class="panel" style="padding:8px 12px;margin:6px 0"><summary>${new Date(x.created_at).toLocaleString("es-EC", { timeZone: "America/Guayaquil" })} · <b>${x.ip_total}</b>/100 · ${esc((x.pregunta || "").slice(0, 80))}${x.ip_sensible ? " ⚠️" : ""}</summary>
+        <pre class="txt">${esc(x.pregunta)}</pre>
+        ${x.faltan.length ? `<div><b style="color:#e5584e">No dijo:</b> ${x.faltan.map(esc).join(", ")}</div>` : ""}${x.parcial.length ? `<div><b style="color:#b9770e">A medias:</b> ${x.parcial.map(esc).join(", ")}</div>` : ""}</details>`).join("") || '<p class="mut">Sin consultas evaluadas en el período.</p>');
+      $("cdet").scrollIntoView({ behavior: "smooth" });
+    }));
   });
 }
 

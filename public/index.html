@@ -51,6 +51,20 @@
   .arch .info { flex:1; min-width:0; } .arch b { font-size:14px; } .arch small { display:block; color:#6b7787; font-size:12px; margin-top:2px; }
   .arch button { background:#0b5fff; color:#fff; border:0; border-radius:8px; padding:8px 12px; cursor:pointer; font:inherit; font-size:13px; white-space:nowrap; }
   .nuevo { background:#ff5a4f; color:#fff; border-radius:8px; padding:0 6px; font-size:11px; margin-left:6px; }
+  /* Termómetro de preguntas */
+  #termo { cursor:pointer; display:inline-flex; align-items:center; gap:6px; border:0; color:#fff; font:inherit; font-size:12px; }
+  #termo .tk { width:54px; height:8px; border-radius:4px; background:rgba(255,255,255,.3); overflow:hidden; }
+  #termo .tk i { display:block; height:100%; border-radius:4px; background:#fff; }
+  #termoPanel { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:flex-end; justify-content:center; z-index:9; }
+  #termoPanel .box { background:#fff; width:100%; max-width:560px; max-height:88vh; overflow:auto; border-radius:14px 14px 0 0; padding:16px; }
+  #termoPanel h2 { margin:0 0 2px; font-size:18px; } #termoPanel .mut { color:#6b7787; font-size:13px; }
+  .gauge { position:relative; height:16px; border-radius:8px; margin:26px 0 6px; background:linear-gradient(90deg,#e5584e 0 40%,#f2b134 40% 70%,#8fcf7d 70% 85%,#2e9d57 85% 100%); }
+  .gauge b { position:absolute; top:-9px; width:4px; height:34px; background:#1b2430; border-radius:2px; transform:translateX(-2px); }
+  .gauge em { position:absolute; top:-26px; transform:translateX(-50%); font-style:normal; font-weight:700; font-size:13px; }
+  .gscale { display:flex; justify-content:space-between; font-size:11px; color:#6b7787; }
+  .crit { display:grid; grid-template-columns:150px 1fr 38px; align-items:center; gap:8px; font-size:13px; margin:5px 0; }
+  .crit .bar { height:9px; background:#eef1f5; border-radius:5px; overflow:hidden; } .crit .bar i { display:block; height:100%; border-radius:5px; }
+  .foco { background:#eef5ff; border-left:4px solid #0b5fff; border-radius:6px; padding:8px 10px; margin:12px 0; font-size:14px; }
   #login { position:fixed; inset:0; background:var(--bg); display:none; align-items:center; justify-content:center; padding:16px; z-index:10; }
   #login .box { background:#fff; border-radius:14px; box-shadow:0 4px 18px rgba(0,0,0,.12); padding:24px; width:100%; max-width:340px; display:flex; flex-direction:column; gap:12px; }
   #login h2 { margin:0; font-size:20px; }
@@ -77,6 +91,7 @@
     <div class="quien"><span id="h_nombre"></span><span id="h_empresa"></span></div>
     <div class="chips2">
       <span class="pill" id="h_mercado" style="display:none"></span>
+      <button class="pill" id="termo" title="Cómo va la estructura de tus preguntas"></button>
       <span class="pill" id="cupo"></span>
     </div>
   </div>
@@ -97,6 +112,12 @@
   <h2>📁 Mi casillero</h2><p class="mut">Material que tu administrador dejó para ti.</p>
   <div id="casLista"></div>
   <button id="casCerrar" style="width:100%;margin-top:6px;padding:10px;border:0;border-radius:8px;background:#e9eef5;cursor:pointer;font:inherit">Cerrar</button>
+</div></div>
+
+<div id="termoPanel"><div class="box">
+  <h2>🌡️ Termómetro de mis preguntas</h2><p class="mut">Mide qué tan completo le cuentas cada caso al copiloto. Mientras más completo, mejor y más rápida es la respuesta.</p>
+  <div id="termoCuerpo"></div>
+  <button id="termoCerrar" style="width:100%;margin-top:6px;padding:10px;border:0;border-radius:8px;background:#e9eef5;cursor:pointer;font:inherit">Cerrar</button>
 </div></div>
 
 <div id="login">
@@ -283,6 +304,7 @@ async function ask(text) {
     } else {
       history.push({ role: "assistant", content: j.reply }); render("assistant", j.reply, j.log_id);
       if (j.limite != null) pintarCupo(j.usadas, j.limite);
+      if (history.length === 2) setTimeout(cargarTermo, 9000);
     }
   } catch { wait.remove(); render("assistant", "⚠️ Sin conexión. Intenta de nuevo."); history.pop(); }
   sessionStorage.setItem("h", JSON.stringify(history));
@@ -342,12 +364,50 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && ge
 $("casCerrar").onclick = () => $("casillero").style.display = "none";
 $("casillero").onclick = (e) => { if (e.target.id === "casillero") $("casillero").style.display = "none"; };
 
+// ---------- termómetro de preguntas (solo tendencia; sin nota por mensaje) ----------
+const COLOR_NIVEL = { mejorar: "#e5584e", camino: "#f2b134", bien: "#8fcf7d", excelente: "#2e9d57" };
+let termo = null;
+async function cargarTermo() {
+  try {
+    const r = await api("/api/mi-termometro"); if (!r.ok) return;
+    termo = await r.json();
+    const b = $("termo");
+    if (!termo.activo) { b.innerHTML = `🌡️ Mis preguntas: ${termo.n}/3`; return; }
+    b.innerHTML = `🌡️ <span class="tk"><i style="width:${termo.valor}%"></i></span> ${escH(termo.nivel.texto)}`;
+  } catch {}
+}
+function pintarTermo() {
+  const t = termo, el = $("termoCuerpo");
+  if (!t) { el.innerHTML = '<p class="mut">Cargando…</p>'; return; }
+  if (!t.activo) {
+    el.innerHTML = `<p style="font-size:15px">Tu termómetro se activa con <b>3 consultas de casos</b> de clientes. Llevas <b>${t.n}</b>.</p>
+      <p class="mut">Tip: cuenta el caso completo en un solo mensaje (modelo, visitas, tiempo, pago y qué quieres lograr). Mira la Guía del vendedor en tu casillero.</p>`;
+    return;
+  }
+  const cambio = t.cambio == null ? "" : t.cambio > 0 ? `▲ subiste ${t.cambio} frente a tus 10 consultas anteriores` : t.cambio < 0 ? `▼ bajaste ${-t.cambio} frente a tus 10 consultas anteriores` : "= igual que tus 10 consultas anteriores";
+  const pts = t.serie.map((v, i) => `${t.serie.length > 1 ? (i * 100) / (t.serie.length - 1) : 50},${40 - (v * 36) / 100}`).join(" ");
+  el.innerHTML = `
+    <div class="gauge"><em style="left:${t.valor}%">${t.valor}</em><b style="left:${t.valor}%"></b></div>
+    <div class="gscale"><span>Por mejorar</span><span>En camino</span><span>Bien</span><span>Excelente</span></div>
+    <p style="font-size:16px;margin:12px 0 2px"><b style="color:${COLOR_NIVEL[t.nivel.clave]}">${escH(t.nivel.texto)}</b> · tus últimas ${t.n} consultas</p>
+    ${cambio ? `<p class="mut" style="margin:0">${cambio}</p>` : ""}
+    <svg viewBox="0 0 100 44" preserveAspectRatio="none" style="width:100%;height:56px;margin:10px 0 0;background:#f6f8fb;border-radius:8px"><polyline points="${pts}" fill="none" stroke="#0b5fff" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>
+    <div class="mut" style="text-align:center">Tendencia de tus últimas consultas</div>
+    <h3 style="font-size:15px;margin:14px 0 6px">Qué tan completos van tus datos</h3>
+    ${t.criterios.filter(c => c.pct != null).map(c => `<div class="crit"><span>${escH(c.n)}</span><span class="bar"><i style="width:${c.pct}%;background:${c.pct >= 70 ? "#2e9d57" : c.pct >= 40 ? "#f2b134" : "#e5584e"}"></i></span><span>${c.pct}%</span></div>`).join("")}
+    ${t.foco ? `<div class="foco">💡 <b>Para tu próxima consulta:</b> ${escH(t.foco.tip)}</div>` : '<div class="foco">🎯 ¡Vas muy completo! Sigue así.</div>'}`;
+}
+$("termo").onclick = () => { $("termoPanel").style.display = "flex"; pintarTermo(); cargarTermo().then(pintarTermo); };
+$("termoCerrar").onclick = () => $("termoPanel").style.display = "none";
+$("termoPanel").onclick = (e) => { if (e.target.id === "termoPanel") $("termoPanel").style.display = "none"; };
+setInterval(() => { if (getSess() && !document.hidden) cargarTermo(); }, 5 * 60 * 1000);
+
 async function iniciar() {
   if (!(await cargarMe())) return;
   chat.innerHTML = "";
   if (history.length) { $("chips").style.display = "none"; history.forEach(m => render(m.role, m.content)); }
   else saludo();
-  cargarCasillero();
+  cargarCasillero(); cargarTermo();
   pintarCupo(me.usadas, me.limite); // si ya no le quedan consultas, deja el aviso y bloquea el envío
 }
 

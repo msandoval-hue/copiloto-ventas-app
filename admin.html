@@ -51,7 +51,10 @@
   <button data-t="usuarios" class="on">Usuarios</button>
   <button data-t="empresas">Empresas</button>
   <button data-t="conocimiento">Conocimiento global</button>
+  <button data-t="mercado">Mercado</button>
+  <button data-t="casillero">Casillero</button>
   <button data-t="consultas">Consultas</button>
+  <button data-t="calidad">Calidad de preguntas</button>
 </nav>
 <main id="main">Cargando…</main>
 <div id="msg"></div>
@@ -70,7 +73,7 @@ let tab = "usuarios", empresas = [], usuarios = [], conocimiento = [], yo = null
 
 // ---------- sesión ----------
 const getSess = () => { try { return JSON.parse(localStorage.getItem("sess") || "null"); } catch { return null; } };
-const setSess = (s) => { try { s ? localStorage.setItem("sess", JSON.stringify(s)) : localStorage.removeItem("sess"); } catch {} };
+const setSess = (s) => { try { if (s) { localStorage.setItem("sess", JSON.stringify(s)); localStorage.setItem("ult_act", String(Date.now())); } else localStorage.removeItem("sess"); } catch {} };
 async function refrescar() {
   const s = getSess(); if (!s?.refresh_token) return false;
   try { const r = await fetch("/api/refresh", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ refresh_token: s.refresh_token }) });
@@ -94,6 +97,29 @@ $("lf").onsubmit = (e) => { e.preventDefault(); act(async () => {
   setSess(j); $("lp").value = ""; $("login").style.display = "none"; iniciar();
 }); };
 $("salir").onclick = () => { setSess(null); location.href = "/"; };
+
+// ---------- cierre automático por inactividad ----------
+const IDLE_MS = 2 * 60 * 60 * 1000; // 2 horas sin actividad
+(function () {
+  const K = "ult_act";
+  const marcar = () => { try { localStorage.setItem(K, String(Date.now())); } catch {} };
+  const revisar = () => {
+    let t = 0; try { t = Number(localStorage.getItem(K)) || 0; } catch {}
+    if (!getSess()) return;
+    if (!t) return marcar();
+    if (Date.now() - t > IDLE_MS) {
+      setSess(null); try { sessionStorage.removeItem("h"); sessionStorage.setItem("idle", "1"); } catch {}
+      location.href = "/";
+    }
+  };
+  let ult = 0;
+  const actividad = () => { const n = Date.now(); if (n - ult > 15000) { ult = n; marcar(); } };
+  ["pointerdown", "keydown", "touchstart", "scroll", "click"].forEach(ev => addEventListener(ev, actividad, { passive: true, capture: true }));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) revisar(); });
+  setInterval(revisar, 60000);
+  revisar(); if (getSess() && !localStorage.getItem(K)) marcar();
+})();
+
 $("tabs").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; tab = b.dataset.t;
   document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b)); pintar(); };
 
@@ -104,7 +130,7 @@ async function iniciar() {
     pintar();
   });
 }
-const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, consultas: vConsultas })[tab]();
+const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, mercado: vMercado, casillero: vCasillero, consultas: vConsultas, calidad: vCalidad })[tab]();
 const optEmp = (sel) => '<option value="">— Sin empresa —</option>' + empresas.map(e => `<option value="${e.id}" ${e.id === sel ? "selected" : ""}>${esc(e.nombre)}</option>`).join("");
 const nomEmp = (id) => empresas.find(e => e.id === id)?.nombre || "—";
 const nomSuc = (id) => { for (const e of empresas) { const s = e.sucursales.find(x => x.id === id); if (s) return s.nombre; } return "—"; };
@@ -134,6 +160,7 @@ function formUsuario(u) {
       ${nuevo ? `<label>Correo<input id="u_email" type="email"></label>` : `<label>Correo<input value="${esc(u.email || "")}" disabled></label>`}
       <label>${nuevo ? "Clave (mín. 8 caracteres)" : "Nueva clave (vacío = no cambiar)"}<input id="u_pass" type="text" autocomplete="off"></label>
       <label>Nombre<input id="u_nombre" value="${esc(u.nombre || "")}"></label>
+      <label>Teléfono / WhatsApp<input id="u_tel" value="${esc(u.telefono || "")}" placeholder="+593 9XXXXXXXX"></label>
       <label>Rol<select id="u_rol"><option value="vendedor" ${u.rol === "vendedor" ? "selected" : ""}>Vendedor</option><option value="admin" ${u.rol === "admin" ? "selected" : ""}>Administrador</option></select></label>
       <label>Empresa<select id="u_emp">${optEmp(u.empresa_id)}</select></label>
       <label>Sucursal<select id="u_suc"></select></label>
@@ -148,7 +175,7 @@ function formUsuario(u) {
   $("u_no").onclick = () => $("formU").innerHTML = "";
   $("u_ok").onclick = () => act(async () => {
     const body = { nombre: $("u_nombre").value, rol: $("u_rol").value, empresa_id: $("u_emp").value || null, sucursal_id: $("u_suc").value || null,
-      limite_diario: $("u_lim").value === "" ? null : Number($("u_lim").value), activo: $("u_act").value === "1", descripcion: $("u_desc").value };
+      limite_diario: $("u_lim").value === "" ? null : Number($("u_lim").value), activo: $("u_act").value === "1", descripcion: $("u_desc").value, telefono: $("u_tel").value };
     if (nuevo) { body.email = $("u_email").value; body.password = $("u_pass").value; await api("/api/admin/usuarios", { method: "POST", body }); aviso("Usuario creado ✓"); }
     else { if ($("u_pass").value) body.password = $("u_pass").value; await api("/api/admin/usuarios/" + u.id, { method: "PATCH", body }); aviso("Cambios guardados ✓"); }
     vUsuarios();
@@ -194,6 +221,73 @@ async function vEmpresas() {
   });
 }
 
+
+// ======================= CASILLERO =======================
+const CATS = ["Mercado", "Productos", "Capacitación", "Promociones", "Otros"];
+const kb = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+async function subirArchivo(url, file, reintento = true) {
+  const s = getSess();
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/octet-stream", Authorization: "Bearer " + (s?.access_token || "") }, body: file });
+  if (r.status === 401 && reintento && await refrescar()) return subirArchivo(url, file, false);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || "No se pudo subir el archivo");
+  return j;
+}
+async function vCasillero() {
+  await act(async () => {
+    let lista, vend;
+    [empresas, usuarios, lista] = await Promise.all([api("/api/admin/empresas"), api("/api/admin/usuarios"), api("/api/admin/casillero")]);
+    vend = usuarios.filter(u => u.rol === "vendedor" && u.activo);
+    const destino = (a) => a.alcance === "todas" ? "Todas las empresas" : a.alcance === "empresa" ? "Empresa: " + (a.empresa || "—") : a.alcance === "sucursal" ? "Sucursal: " + (a.sucursal || "—") : "Vendedor: " + (a.vendedor || "—");
+    $("main").innerHTML = `<h2>Casillero</h2>
+      <p class="mut">Archivos que los vendedores pueden descargar desde su pantalla (compendios, material de mercado, fichas de producto…). Máximo 25 MB. PDF, Word, Excel, PowerPoint, CSV, TXT, imágenes y MP4.</p>
+      <div class="panel"><h3 style="margin-top:0">Subir archivo</h3>
+        <div class="grid">
+          <label>Título<input id="c_tit" maxlength="150"></label>
+          <label>Categoría<select id="c_cat">${CATS.map(c => `<option>${c}</option>`).join("")}</select></label>
+          <label>¿Para quién?<select id="c_alc"><option value="todas">Todas las empresas</option><option value="empresa">Una empresa</option><option value="sucursal">Una sucursal</option><option value="vendedor">Un vendedor</option></select></label>
+          <label id="c_wemp" style="display:none">Empresa<select id="c_emp">${empresas.map(e => `<option value="${e.id}">${esc(e.nombre)}</option>`).join("")}</select></label>
+          <label id="c_wsuc" style="display:none">Sucursal<select id="c_suc">${empresas.flatMap(e => e.sucursales.map(x => `<option value="${x.id}">${esc(e.nombre)} · ${esc(x.nombre)}</option>`)).join("")}</select></label>
+          <label id="c_wven" style="display:none">Vendedor<select id="c_ven">${vend.map(u => `<option value="${u.id}">${esc(u.nombre)} (${esc(nomEmp(u.empresa_id))})</option>`).join("")}</select></label>
+        </div>
+        <label style="margin-top:10px">Descripción (opcional, qué es y por qué leerlo)<textarea id="c_desc" rows="2" maxlength="400"></textarea></label>
+        <label style="margin-top:10px">Archivo<input id="c_file" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.md,.png,.jpg,.jpeg,.mp4"></label>
+        <div class="row"><button class="p" id="c_ok">Subir al casillero</button><span class="mut" id="c_est"></span></div></div>
+      <div id="c_det"></div>
+      <div class="tablewrap"><table><thead><tr><th>Título</th><th>Categoría</th><th>Para</th><th>Tamaño</th><th>Descargas</th><th>Estado</th><th>Subido</th><th></th></tr></thead><tbody>
+      ${lista.map(a => `<tr data-id="${a.id}"><td class="click" data-ver="${a.id}"><b>${esc(a.titulo)}</b><br><span class="mut">${esc(a.nombre_original)}</span></td><td>${esc(a.categoria)}</td><td>${esc(destino(a))}</td><td>${kb(a.tamano)}</td>
+        <td class="click" data-ver="${a.id}">${a.descargaron}/${a.destinatarios}</td><td><span class="tag ${a.activo ? "ok" : "bad"}">${a.activo ? "visible" : "oculto"}</span></td><td>${new Date(a.created_at).toLocaleDateString("es-EC")}</td>
+        <td><button class="s" data-tog="${a.id}">${a.activo ? "Ocultar" : "Mostrar"}</button> <button class="d" data-del="${a.id}">Eliminar</button></td></tr>`).join("")}
+      </tbody></table></div>${lista.length ? '<p class="mut">Pulsa el título o las descargas para ver quién lo descargó y quién no.</p>' : '<p class="mut">Aún no hay archivos.</p>'}`;
+    const alc = () => { const v = $("c_alc").value; $("c_wemp").style.display = v === "empresa" ? "" : "none"; $("c_wsuc").style.display = v === "sucursal" ? "" : "none"; $("c_wven").style.display = v === "vendedor" ? "" : "none"; };
+    $("c_alc").onchange = alc; alc();
+    $("c_ok").onclick = () => act(async () => {
+      const f = $("c_file").files[0];
+      if (!$("c_tit").value.trim()) throw new Error("Escribe un título");
+      if (!f) throw new Error("Elige un archivo");
+      if (f.size > 25 * 1024 * 1024) throw new Error("El archivo supera los 25 MB");
+      const al = $("c_alc").value;
+      const q = new URLSearchParams({ titulo: $("c_tit").value, descripcion: $("c_desc").value, categoria: $("c_cat").value, alcance: al, nombre: f.name });
+      if (al === "empresa") q.set("empresa_id", $("c_emp").value);
+      if (al === "sucursal") q.set("sucursal_id", $("c_suc").value);
+      if (al === "vendedor") q.set("vendedor_id", $("c_ven").value);
+      $("c_ok").disabled = true; $("c_est").textContent = "Subiendo…";
+      try { await subirArchivo("/api/admin/casillero/subir?" + q, f); aviso("Archivo subido ✓"); vCasillero(); }
+      finally { $("c_ok").disabled = false; $("c_est") && ($("c_est").textContent = ""); }
+    });
+    document.querySelectorAll("[data-tog]").forEach(b => b.onclick = () => act(async () => {
+      const a = lista.find(x => x.id === b.dataset.tog); await api("/api/admin/casillero/" + a.id, { method: "PATCH", body: { activo: !a.activo } }); vCasillero(); }));
+    document.querySelectorAll("[data-del]").forEach(b => b.onclick = () => confirm("¿Eliminar este archivo? Los vendedores ya no podrán descargarlo.") && act(async () => {
+      await api("/api/admin/casillero/" + b.dataset.del, { method: "DELETE" }); aviso("Eliminado"); vCasillero(); }));
+    document.querySelectorAll("[data-ver]").forEach(td => td.onclick = () => act(async () => {
+      const a = lista.find(x => x.id === td.dataset.ver); const d = await api("/api/admin/casillero/" + a.id + "/descargas");
+      $("c_det").innerHTML = `<div class="panel"><h3 style="margin-top:0">${esc(a.titulo)} · ${a.descargaron}/${a.destinatarios} lo descargaron</h3>
+        ${d.length ? d.map(x => `<span class="chip">${esc(x.nombre)} · ${x.descargado ? "✓ " + new Date(x.descargado).toLocaleString("es-EC") : "<b style='color:#c0392b'>no lo ha descargado</b>"}</span>`).join("") : '<p class="mut">No hay vendedores activos que lo reciban.</p>'}
+        <div class="row"><button class="s" id="c_cerrar">Cerrar</button></div></div>`;
+      $("c_cerrar").onclick = () => $("c_det").innerHTML = ""; $("c_det").scrollIntoView({ behavior: "smooth" }); }));
+  });
+}
+
 // ======================= CONOCIMIENTO GLOBAL =======================
 async function vConocimiento() {
   await act(async () => {
@@ -202,7 +296,7 @@ async function vConocimiento() {
     $("main").innerHTML = `<h2>Conocimiento global</h2>
       <p class="mut">Metodologías, expertos, datos de mercado, triggers y buenas prácticas. Sirven a <b>todas</b> las empresas y se aplican en máximo 1 minuto tras guardar.
       Tamaño activo: ${total.toLocaleString("es-EC")} caracteres (≈ ${Math.round(total / 3.6).toLocaleString("es-EC")} tokens por consulta; se cachea para abaratar).</p>
-      <div class="row"><button class="s" id="imp">Importar archivos base (solo agrega los que faltan)</button><button class="d" id="imp2">Restaurar desde archivos (sobrescribe)</button><button class="p" id="nuevoK">+ Nuevo documento</button></div>
+      <div class="row"><button class="s" id="imp">Importar archivos base (solo agrega los que faltan)</button><button class="d" id="imp2">Restaurar desde archivos (sobrescribe)</button><button class="p" id="nuevoK">+ Nuevo documento</button><button class="s" id="subirK">⬆ Subir archivo .md</button><input type="file" id="fileK" accept=".md,.txt,text/markdown,text/plain" style="display:none"></div>
       <div id="formK"></div>
       <div class="tablewrap"><table><thead><tr><th>Orden</th><th>Documento</th><th>Clave</th><th>Caracteres</th><th>Estado</th><th>Actualizado</th></tr></thead><tbody>
       ${conocimiento.map(d => `<tr class="click" data-id="${d.id}"><td>${d.orden}</td><td>${esc(d.titulo)}</td><td>${esc(d.clave)}</td><td>${d.largo.toLocaleString("es-EC")}</td>
@@ -213,6 +307,16 @@ async function vConocimiento() {
     $("imp").onclick = () => importar(false);
     $("imp2").onclick = () => confirm("Esto reemplaza el contenido de los 5 documentos base por los archivos del repositorio y pierde tus ediciones en ellos. ¿Continuar?") && importar(true);
     $("nuevoK").onclick = () => formConocimiento(null);
+    $("subirK").onclick = () => $("fileK").click();
+    $("fileK").onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const texto = (await f.text()).replace(/^\uFEFF/, "");
+      const clave = f.name.replace(/\.[^.]+$/, "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const ex = conocimiento.find(d => d.clave === clave);
+      if (ex) { formConocimiento({ ...ex, contenido: texto }); aviso("Ya existía «" + ex.titulo + "»: revisa el contenido nuevo y pulsa Guardar para reemplazarlo."); }
+      else { formConocimiento(null); $("k_clave").value = clave; $("k_titulo").value = clave.replace(/-/g, " ").replace(/^./, c => c.toUpperCase()); $("k_cont").value = texto; aviso("Archivo cargado: revisa y pulsa Guardar."); }
+      e.target.value = "";
+    };
     document.querySelectorAll("#main tr.click").forEach(tr => tr.onclick = () => formConocimiento(conocimiento.find(d => d.id === tr.dataset.id)));
   });
 }
@@ -236,6 +340,56 @@ function formConocimiento(d) {
   $("formK").scrollIntoView({ behavior: "smooth" });
 }
 
+// ======================= MERCADO (CSV) =======================
+const ymTxt = (p) => p ? String(p).slice(0, 4) + "-" + String(p).slice(4) : "—";
+async function leerArchivo(file) {
+  // Excel en español suele guardar en UTF-8 o en Windows-1252; probamos ambos.
+  const buf = await file.arrayBuffer();
+  let t = new TextDecoder("utf-8").decode(buf);
+  if (t.includes("\uFFFD")) t = new TextDecoder("windows-1252").decode(buf);
+  return t;
+}
+async function vMercado() {
+  await act(async () => {
+    if (!empresas.length) empresas = await api("/api/admin/empresas");
+    const cargas = await api("/api/admin/mercado");
+    $("main").innerHTML = `
+      <div class="panel"><h3 style="margin-top:0">Cargar base de mercado (CSV)</h3>
+        <p class="mut" style="margin-top:0">Columnas: <b>anio, mes, marca, modelo, combustible, segmento, cantidad, precio</b> (el orden de las columnas no importa; acepta coma o punto y coma; anio y mes son números, el mes 1-12). Si subes de nuevo un mes ya cargado de la misma fuente, lo reemplaza sin duplicar.</p>
+        <div class="grid">
+          <label>Destino<select id="m_dest"><option value="">🌎 Mercado general (todas las empresas, ej. AEADE)</option>${empresas.map(e => `<option value="${e.id}">${esc(e.nombre)} (solo esta empresa)</option>`).join("")}</select></label>
+          <label>Fuente (nombre para identificar la carga)<input id="m_fuente" value="AEADE" maxlength="60"></label>
+          <label>Archivo CSV<input id="m_file" type="file" accept=".csv,.txt,text/csv"></label>
+        </div>
+        <div class="row"><button class="s" id="m_plantilla">Descargar plantilla</button><button class="p" id="m_revisar">Revisar archivo</button></div>
+        <div id="m_res"></div>
+      </div>
+      <h3>Datos cargados</h3>
+      <div class="tablewrap"><table><thead><tr><th>Destino</th><th>Fuente</th><th>Filas</th><th>Unidades</th><th>Desde</th><th>Hasta</th><th></th></tr></thead><tbody>
+      ${cargas.map(c => `<tr><td>${c.empresa_id ? esc(nomEmp(c.empresa_id)) : "🌎 General"}</td><td>${esc(c.fuente)}</td><td>${c.filas.toLocaleString("es-EC")}</td><td>${c.unidades.toLocaleString("es-EC")}</td><td>${ymTxt(c.desde)}</td><td>${ymTxt(c.hasta)}</td><td><button class="s m_del" data-e="${c.empresa_id || ""}" data-f="${esc(c.fuente)}">Borrar</button></td></tr>`).join("") || '<tr><td colspan="7" class="mut">Aún no hay datos de mercado cargados</td></tr>'}
+      </tbody></table></div>`;
+    $("m_plantilla").onclick = () => {
+      const csv = "anio,mes,marca,modelo,combustible,segmento,cantidad,precio\n2026,9,Nissan,Kicks,Gasolina,SUV,120,25990\n2026,9,BYD,Dolphin,Eléctrico,Hatchback,45,28990\n";
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv" })); a.download = "plantilla_mercado.csv"; a.click();
+    };
+    const enviar = async (simular, aceptar) => {
+      const f = $("m_file").files[0]; if (!f) return aviso("Selecciona un archivo CSV", true);
+      const csv = await leerArchivo(f);
+      return api("/api/admin/mercado/importar", { method: "POST", body: { csv, empresa_id: $("m_dest").value || null, fuente: $("m_fuente").value, simular, aceptar_errores: !!aceptar } });
+    };
+    const pintarRes = (r, final) => {
+      $("m_res").innerHTML = `<div class="panel" style="margin-top:12px">
+        <b>${final ? "✅ Cargado" : "Revisión del archivo"}</b>: ${r.validas.toLocaleString("es-EC")} filas válidas de ${r.leidas.toLocaleString("es-EC")} · ${r.meses} meses (${ymTxt(r.desde)} a ${ymTxt(r.hasta)}) · ${r.marcas} marcas · ${r.modelos} modelos · ${r.unidades.toLocaleString("es-EC")} unidades
+        ${r.con_error ? `<p style="color:#c0392b;margin:8px 0 0">${r.con_error} filas con error:<br>${r.errores.map(esc).join("<br>")}${r.con_error > r.errores.length ? "<br>…" : ""}</p>` : ""}
+        ${final ? "" : `<div class="row"><button class="p" id="m_cargar">${r.con_error ? "Cargar solo las filas válidas" : "Cargar"}</button></div>`}</div>`;
+      if (!final) $("m_cargar").onclick = () => act(async () => { const x = await enviar(false, true); pintarRes(x, true); aviso("Mercado cargado ✓"); setTimeout(vMercado, 50); });
+    };
+    $("m_revisar").onclick = () => act(async () => { pintarRes(await enviar(true)); });
+    document.querySelectorAll(".m_del").forEach(b => b.onclick = () => confirm("¿Borrar esta carga completa?") && act(async () => {
+      await api("/api/admin/mercado/borrar", { method: "POST", body: { empresa_id: b.dataset.e || null, fuente: b.dataset.f } }); vMercado(); }));
+  });
+}
+
 // ======================= CONSULTAS =======================
 async function vConsultas() {
   await act(async () => {
@@ -254,6 +408,58 @@ async function vConsultas() {
         <span class="tag ${l.estado === "ok" ? "ok" : "bad"}">${l.estado}</span> ${l.util === true ? "👍" : l.util === false ? "👎" : ""}</summary>
         <div class="mut">Pregunta</div><pre class="txt">${esc(l.pregunta)}</pre><div class="mut">Respuesta (${l.tokens_entrada ?? 0} / ${l.tokens_salida ?? 0} tokens)</div><pre class="txt">${esc(l.respuesta || "—")}</pre></details>`).join("") || '<p class="mut">Sin registros</p>'}`;
     $("dias").onchange = vConsultas;
+  });
+}
+
+// ======================= CALIDAD DE PREGUNTAS =======================
+const COL_NIVEL = { mejorar: "#e5584e", camino: "#f2b134", bien: "#8fcf7d", excelente: "#2e9d57" };
+const colPct = (p) => p >= 70 ? "#2e9d57" : p >= 40 ? "#f2b134" : "#e5584e";
+const chipNivel = (n) => n ? `<span class="tag" style="background:${COL_NIVEL[n.clave]}22;color:#1b2430;border:1px solid ${COL_NIVEL[n.clave]}">${n.texto}</span>` : '<span class="tag">Sin casos</span>';
+const flecha = (c) => c == null ? '<span class="mut">—</span>' : c > 0 ? `<span style="color:#2e9d57">▲ ${c}</span>` : c < 0 ? `<span style="color:#e5584e">▼ ${-c}</span>` : '<span class="mut">=</span>';
+function spark(serie) {
+  if (!serie?.length) return "";
+  const pts = serie.map((v, i) => `${serie.length > 1 ? (i * 70) / (serie.length - 1) : 35},${22 - v * 0.2}`).join(" ");
+  return `<svg width="74" height="24" viewBox="0 0 74 24"><polyline points="${pts}" fill="none" stroke="#0b5fff" stroke-width="1.6"/></svg>`;
+}
+const barra = (v, color) => `<span style="display:inline-block;width:70px;height:8px;background:#eef1f5;border-radius:4px;vertical-align:middle;overflow:hidden"><i style="display:block;width:${v}%;height:100%;background:${color}"></i></span>`;
+
+async function vCalidad() {
+  await act(async () => {
+    if (!empresas.length) empresas = await api("/api/admin/empresas");
+    const dias = Number($("cdias")?.value || 30), emp = $("cemp")?.value || "";
+    const r = await api(`/api/admin/calidad?dias=${dias}` + (emp ? "&empresa_id=" + encodeURIComponent(emp) : ""));
+    const e = r.equipo, crit = [...e.criterios].filter(c => c.pct != null).sort((a, b) => a.pct - b.pct);
+    $("main").innerHTML = `<h2>Calidad de las preguntas</h2>
+      <p class="mut" style="margin-top:-6px">Qué tan completo cuenta cada asesor su caso al copiloto, según la Guía del vendedor. Se evalúa el primer mensaje de cada consulta sobre un cliente. El asesor solo ve su termómetro; el detalle es tuyo.</p>
+      <div class="row">
+        <label style="flex-direction:row;align-items:center;gap:8px">Últimos <select id="cdias" style="width:auto">${[7,15,30,60,90].map(n => `<option ${n === dias ? "selected" : ""}>${n}</option>`).join("")}</select> días</label>
+        ${empresas.length > 1 ? `<label style="flex-direction:row;align-items:center;gap:8px">Empresa <select id="cemp" style="width:auto"><option value="">Todas</option>${empresas.map(x => `<option value="${x.id}" ${x.id === emp ? "selected" : ""}>${esc(x.nombre)}</option>`).join("")}</select></label>` : ""}
+      </div>
+      <div class="grid">
+        <div class="panel"><div class="mut">Nota del equipo</div><div style="font-size:34px;font-weight:700">${e.valor ?? "—"}<span style="font-size:15px;color:#6b7787"> / 100</span></div><div>${e.valor != null && e.anterior != null ? flecha(e.valor - e.anterior) + ' <span class="mut">vs. período anterior</span>' : '<span class="mut">sin período anterior</span>'}</div></div>
+        <div class="panel"><div class="mut">Consultas evaluadas</div><div style="font-size:34px;font-weight:700">${e.evaluadas}</div><div class="mut">de ${e.consultas} consultas del período</div></div>
+        <div class="panel"><div class="mut">Asesores por nivel</div><div style="line-height:2">${["excelente","bien","camino","mejorar"].map(k => `${chipNivel({ clave: k, texto: { excelente: "Excelente", bien: "Bien", camino: "En camino", mejorar: "Por mejorar" }[k] })} <b>${e.niveles[k]}</b>`).join("<br>")}</div></div>
+      </div>
+      ${e.sensibles ? `<div class="panel" style="border-color:#f2b134;background:#fff8e8">⚠️ <b>${e.sensibles}</b> consulta(s) con datos sensibles (cédula, cuenta, teléfono o buró). Revísalas en el detalle de cada asesor y recuérdales la sección 7 de la guía.</div>` : ""}
+      <h3>Qué debe mejorar el equipo <span class="mut" style="font-weight:400">(de lo más flojo a lo más fuerte; sugiere el tema de la próxima capacitación)</span></h3>
+      ${crit.map(c => `<div style="display:grid;grid-template-columns:200px 120px 1fr;gap:8px;align-items:center;margin:4px 0;font-size:13px"><span>${esc(c.n)}</span><span>${barra(c.pct, colPct(c.pct))} <b>${c.pct}%</b></span><span class="mut">${c.pct < 70 ? esc(c.tip) : ""}</span></div>`).join("") || '<p class="mut">Aún no hay consultas evaluadas en el período.</p>'}
+      <h3>Ranking por asesor <span class="mut" style="font-weight:400">(toca un asesor para ver sus preguntas)</span></h3>
+      <div class="tablewrap"><table><thead><tr><th>#</th><th>Asesor</th><th>Sucursal</th><th>Evaluadas</th><th>Nota</th><th>Nivel</th><th>vs. anterior</th><th>Tendencia</th><th>Qué debe mejorar</th><th></th></tr></thead><tbody>
+      ${r.vendedores.map((v, i) => `<tr class="click" data-id="${v.id}"><td>${v.valor != null ? i + 1 : ""}</td><td><b>${esc(v.nombre)}</b></td><td>${esc(v.sucursal)}</td><td>${v.evaluadas}<span class="mut"> / ${v.consultas}</span></td>
+        <td>${v.valor != null ? barra(v.valor, COL_NIVEL[v.nivel.clave]) + " <b>" + v.valor + "</b>" : "—"}</td><td>${chipNivel(v.nivel)}</td><td>${flecha(v.cambio)}</td><td>${spark(v.serie)}</td>
+        <td>${v.mejorar.map(m => `${esc(m.n)} <span class="mut">(${m.pct}%)</span>`).join("<br>") || (v.valor != null ? '<span class="mut">Va completo ✓</span>' : '<span class="mut">Sin casos evaluados</span>')}</td><td>${v.sensibles ? `<span title="Datos sensibles">⚠️ ${v.sensibles}</span>` : ""}</td></tr>`).join("") || '<tr><td colspan="10" class="mut">Sin asesores</td></tr>'}
+      </tbody></table></div>
+      <div id="cdet"></div>
+      <p class="mut">Cómo se mide: 10 criterios de la Guía del vendedor (modelo 15, qué quiere lograr 20, tiempo 10, visitas 5, pago 15, score 5, usado 5, última conversación 15, quién decide 5, competencia/urgencia 5). "Score" y "usado" solo cuentan si aplican. Niveles: 85+ Excelente, 70-84 Bien, 40-69 En camino, menos de 40 Por mejorar. La nota la calcula un modelo pequeño; úsala como guía de coaching, no como evaluación de desempeño.</p>`;
+    $("cdias").onchange = vCalidad; if ($("cemp")) $("cemp").onchange = vCalidad;
+    document.querySelectorAll("#main tr.click").forEach(tr => tr.onclick = () => act(async () => {
+      const d = await api(`/api/admin/calidad/vendedor/${tr.dataset.id}?dias=${dias}`);
+      const nombre = tr.querySelector("b").textContent;
+      $("cdet").innerHTML = `<h3>Preguntas evaluadas de ${esc(nombre)}</h3>` + (d.map(x => `<details class="panel" style="padding:8px 12px;margin:6px 0"><summary>${new Date(x.created_at).toLocaleString("es-EC", { timeZone: "America/Guayaquil" })} · <b>${x.ip_total}</b>/100 · ${esc((x.pregunta || "").slice(0, 80))}${x.ip_sensible ? " ⚠️" : ""}</summary>
+        <pre class="txt">${esc(x.pregunta)}</pre>
+        ${x.faltan.length ? `<div><b style="color:#e5584e">No dijo:</b> ${x.faltan.map(esc).join(", ")}</div>` : ""}${x.parcial.length ? `<div><b style="color:#b9770e">A medias:</b> ${x.parcial.map(esc).join(", ")}</div>` : ""}</details>`).join("") || '<p class="mut">Sin consultas evaluadas en el período.</p>');
+      $("cdet").scrollIntoView({ behavior: "smooth" });
+    }));
   });
 }
 

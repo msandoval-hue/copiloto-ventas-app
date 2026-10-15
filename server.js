@@ -1,6 +1,7 @@
 import { textoMercado, TOOL_MERCADO, consultarMercado } from "./mercado.js";
 import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import { registrarCalidad, calificarYGuardar } from "./calidad.js";
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "fs";
 import { pathToFileURL } from "url";
@@ -313,6 +314,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
 
   registrarAdmin(app, { admin, auth, invalidarEmpresas: empresas.invalidar, invalidarBase: conocimiento.invalidar });
   registrarCasillero(app, { admin, auth });
+  registrarCalidad(app, { admin, auth });
 
   app.post("/api/chat", auth, async (req, res) => {
     const p = req.perfil;
@@ -409,6 +411,10 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
         tokens_salida: uso.salida,
       });
       res.json({ reply, log_id, usadas, limite });
+      // Calidad de la pregunta: solo al abrir un caso (primer mensaje del chat); en segundo plano, sin demorar al asesor
+      if (log_id && messages.length === 1) {
+        calificarYGuardar({ admin, anthropic, modelo: process.env.CALIFICADOR_MODEL || "claude-haiku-4-5-20251001", logId: log_id, pregunta: ultima });
+      }
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Error del agente, intenta de nuevo" });

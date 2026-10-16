@@ -1,6 +1,6 @@
 // Rutas de administración. Solo accesibles con rol "admin".
 import { readFileSync } from "fs";
-import { procesarCsv } from "./mercado.js";
+import { procesarCsv, agregar } from "./mercado.js";
 
 const TZ = "America/Guayaquil";
 const hoyEC = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
@@ -397,7 +397,14 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
         x.filas++; x.unidades += Number(r.ventas) || 0; x.desde = Math.min(x.desde, p); x.hasta = Math.max(x.hasta, p);
         g.set(k, x);
       }
-      res.json([...g.values()]);
+      const lista = [...g.values()];
+      for (const x of lista) {
+        let q = admin.from("ventas_mercado_prov").select("id", { count: "exact", head: true }).eq("fuente", x.fuente);
+        q = x.empresa_id ? q.eq("empresa_id", x.empresa_id) : q.is("empresa_id", null);
+        const { count } = await q;
+        x.filas_prov = count || 0;
+      }
+      res.json(lista);
     } catch (e) {
       falla(res, e, "No se pudo leer el mercado");
     }
@@ -426,6 +433,7 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
       const resumen = {
         leidas: r.leidas, validas: r.filas.length, con_error: r.totalErrores, errores: r.errores,
         meses: r.periodos.length, desde: r.periodos[0] || null, hasta: r.periodos.at(-1) || null,
+        provincias: r.tieneProvincia ? new Set(r.filas.map((x) => x.provincia)).size : 0,
         unidades: r.filas.reduce((s, x) => s + x.ventas, 0), marcas: new Set(r.filas.map((x) => x.marca)).size, modelos: new Set(r.filas.map((x) => x.marca + "|" + x.modelo)).size,
       };
       if (b.simular) return res.json({ simulado: true, ...resumen });
@@ -435,19 +443,34 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
       // reemplazo por mes: borra lo anterior de ese destino+fuente en los meses presentes, luego inserta
       const meses = new Map();
       for (const x of r.filas) { if (!meses.has(x.anio)) meses.set(x.anio, new Set()); meses.get(x.anio).add(x.mes); }
+      // Total nacional (suma de provincias) -> ventas_mercado; detalle por provincia -> ventas_mercado_prov
+      const nacional = agregar(r.filas, false).map((x) => ({ ...x, empresa_id: empresaId, fuente }));
+      const detalle = r.tieneProvincia ? agregar(r.filas, true).map(({ propia, ...x }) => ({ ...x, empresa_id: empresaId, fuente })) : [];
       for (const [anio, ms] of meses) {
         for (const mes of ms) {
-          let q = admin.from("ventas_mercado").delete().eq("anio", anio).eq("mes", mes).eq("fuente", fuente);
-          q = empresaId ? q.eq("empresa_id", empresaId) : q.is("empresa_id", null);
-          const { error } = await q;
-          if (error) return falla(res, error, "No se pudo reemplazar los datos anteriores");
+          for (const tabla of ["ventas_mercado", "ventas_mercado_prov"]) {
+            if (tabla === "ventas_mercado_prov" && !r.tieneProvincia) continue; // un archivo sin provincia no toca el detalle anterior
+            let q = admin.from(tabla).delete().eq("anio", anio).eq("mes", mes).eq("fuente", fuente);
+            q = empresaId ? q.eq("empresa_id", empresaId) : q.is("empresa_id", null);
+            const { error } = await q;
+            if (error) return falla(res, error, "No se pudo reemplazar los datos anteriores");
+          }
         }
       }
-      const filas = r.filas.map((x) => ({ ...x, empresa_id: empresaId, fuente }));
-      for (let i = 0; i < filas.length; i += 500) {
-        const { error } = await admin.from("ventas_mercado").insert(filas.slice(i, i + 500));
-        if (error) return falla(res, error, `Se cargaron ${i} de ${filas.length} filas y falló. Vuelve a cargar el mismo archivo: reemplaza los meses sin duplicar.`);
-      }
+      const cargar = async (tabla, filas) => {
+        const LOTE = 1000, PARALELO = 4;
+        const lotes = [];
+        for (let i = 0; i < filas.length; i += LOTE) lotes.push(filas.slice(i, i + LOTE));
+        for (let i = 0; i < lotes.length; i += PARALELO) {
+          const rs = await Promise.all(lotes.slice(i, i + PARALELO).map((l) => admin.from(tabla).insert(l)));
+          const fallo = rs.find((x) => x.error);
+          if (fallo) return fallo.error;
+        }
+        return null;
+      };
+      let err = await cargar("ventas_mercado", nacional);
+      if (!err && detalle.length) err = await cargar("ventas_mercado_prov", detalle);
+      if (err) return falla(res, err, "La carga se interrumpió. Vuelve a cargar el mismo archivo: reemplaza los meses sin duplicar.");
       invalidarEmpresas();
       res.json({ ok: true, ...resumen });
     } catch (e) {
@@ -459,10 +482,12 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
     try {
       const b = req.body || {};
       if (!b.fuente) return mal(res, "Indica la fuente a borrar");
-      let q = admin.from("ventas_mercado").delete().eq("fuente", b.fuente);
-      q = b.empresa_id ? q.eq("empresa_id", b.empresa_id) : q.is("empresa_id", null);
-      const { error } = await q;
-      if (error) return falla(res, error, "No se pudo borrar");
+      for (const tabla of ["ventas_mercado", "ventas_mercado_prov"]) {
+        let q = admin.from(tabla).delete().eq("fuente", b.fuente);
+        q = b.empresa_id ? q.eq("empresa_id", b.empresa_id) : q.is("empresa_id", null);
+        const { error } = await q;
+        if (error) return falla(res, error, "No se pudo borrar");
+      }
       invalidarEmpresas();
       res.json({ ok: true });
     } catch (e) {

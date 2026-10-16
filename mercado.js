@@ -12,6 +12,7 @@ const ALIAS = {
   modelo: ["modelo", "model"],
   combustible: ["combustible", "propulsion", "fuel", "motorizacion", "tipo_combustible"],
   segmento: ["segmento", "segment", "tipo", "carroceria"],
+  provincia: ["provincia", "province", "provincia_venta", "provincia_matricula"],
   precio: ["precio", "price", "pvp", "precio_promedio"],
   ventas: ["cantidad", "ventas", "venta", "unidades", "units", "matriculados", "volumen"],
 };
@@ -54,6 +55,9 @@ export function numero(v) {
   return Number.isFinite(n) ? n : NaN;
 }
 
+// Provincia en MAYÚSCULAS, sin tildes y con espacios simples (ej. "Cañar " -> "CANAR")
+export const normProvincia = (v) => sinTilde(v).replace(/\s+/g, " ").toUpperCase();
+
 export function procesarCsv(texto, { marcasPropias = [] } = {}) {
   const filas = leerCsv(texto);
   if (filas.length < 2) return { error: "El archivo no tiene datos (necesita encabezado y al menos una fila)." };
@@ -83,11 +87,28 @@ export function procesarCsv(texto, { marcasPropias = [] } = {}) {
     else if (ventas === null || Number.isNaN(ventas) || ventas < 0) e = "cantidad inválida";
     else if (Number.isNaN(precio) || (precio !== null && precio < 0)) e = "precio inválido";
     if (e) { if (errores.length < 15) errores.push(`Fila ${n}: ${e}`); nErr++; continue; }
-    ok.push({ anio, mes, marca: marca.slice(0, 60), modelo: modelo.slice(0, 80), segmento: g("segmento").slice(0, 60) || null, combustible: g("combustible").slice(0, 40) || null,
-      ventas: Math.round(ventas), precio, propia: propias.has(sinTilde(marca)) });
+    const fila = { anio, mes, marca: marca.slice(0, 60), modelo: modelo.slice(0, 80), segmento: g("segmento").slice(0, 60) || null, combustible: g("combustible").slice(0, 40) || null,
+      ventas: Math.round(ventas), precio, propia: propias.has(sinTilde(marca)) };
+    if (col.provincia >= 0) fila.provincia = normProvincia(g("provincia")).slice(0, 60) || "SIN DATO";
+    ok.push(fila);
   }
   const periodos = [...new Set(ok.map((r) => r.anio * 100 + r.mes))].sort();
-  return { filas: ok, errores, totalErrores: nErr, periodos, leidas: filas.length - 1 };
+  return { filas: ok, errores, totalErrores: nErr, periodos, leidas: filas.length - 1, tieneProvincia: col.provincia >= 0 };
+}
+
+// Junta filas repetidas (mismo mes, marca, modelo, combustible y, si se pide, provincia): suma unidades y
+// promedia el precio ponderado por unidades. Sin provincia = total nacional.
+export function agregar(filas, conProvincia = false) {
+  const m = new Map();
+  for (const r of filas) {
+    const k = [r.anio, r.mes, conProvincia ? r.provincia : "", sinTilde(r.marca), sinTilde(r.modelo), sinTilde(r.combustible)].join("|");
+    const x = m.get(k) || { anio: r.anio, mes: r.mes, ...(conProvincia ? { provincia: r.provincia } : {}), marca: r.marca, modelo: r.modelo, segmento: r.segmento, combustible: r.combustible, propia: r.propia, ventas: 0, _pv: 0, _pu: 0 };
+    x.ventas += r.ventas;
+    if (!x.segmento && r.segmento) x.segmento = r.segmento;
+    if (r.precio != null) { const w = Math.max(r.ventas, 1); x._pv += r.precio * w; x._pu += w; }
+    m.set(k, x);
+  }
+  return [...m.values()].map(({ _pv, _pu, ...x }) => ({ ...x, precio: _pu ? Math.round((_pv / _pu) * 100) / 100 : null }));
 }
 
 // ---------------------------------------------------------------------------
@@ -261,5 +282,78 @@ export function consultarMercado(filas, a = {}) {
     unidades_total: out.reduce((s, x) => s + x.unidades, 0),
     resultados: out.slice(0, lim),
     nota: out.length ? (por === "modelo" ? "Cada fila es un modelo+combustible; para contar o rankear MARCAS usa agrupar_por='marca'. " : "") + "Precio = promedio ponderado por unidades en el período; es dato de mercado, no precio de lista de la empresa." : "Sin coincidencias: revisa los filtros (usa los valores exactos del contexto).",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// MERCADO POR PROVINCIA: se consulta con SQL agregado en Supabase (la base es demasiado grande para cargarla en memoria).
+// ---------------------------------------------------------------------------
+const CIUDAD_PROVINCIA = {
+  quito: "PICHINCHA", cayambe: "PICHINCHA", sangolqui: "PICHINCHA", ruminahui: "PICHINCHA", tumbaco: "PICHINCHA", cumbaya: "PICHINCHA", machachi: "PICHINCHA",
+  guayaquil: "GUAYAS", duran: "GUAYAS", samborondon: "GUAYAS", daule: "GUAYAS", milagro: "GUAYAS",
+  cuenca: "AZUAY", ambato: "TUNGURAHUA", riobamba: "CHIMBORAZO", latacunga: "COTOPAXI", ibarra: "IMBABURA", otavalo: "IMBABURA", tulcan: "CARCHI",
+  loja: "LOJA", machala: "EL ORO", manta: "MANABI", portoviejo: "MANABI", esmeraldas: "ESMERALDAS", "santo domingo": "SANTO DOMINGO", babahoyo: "LOS RIOS", quevedo: "LOS RIOS",
+  azogues: "CANAR", guaranda: "BOLIVAR", "lago agrio": "SUCUMBIOS", "nueva loja": "SUCUMBIOS", tena: "NAPO", puyo: "PASTAZA", macas: "MORONA SANTIAGO",
+  zamora: "ZAMORA CHINCHIPE", coca: "ORELLANA", orellana: "ORELLANA", "santa elena": "SANTA ELENA", salinas: "SANTA ELENA", "la libertad": "SANTA ELENA", galapagos: "GALAPAGOS",
+};
+export const provinciaDeCiudad = (ciudad) => CIUDAD_PROVINCIA[sinTilde(ciudad).replace(/\s+/g, " ")] || null;
+
+const restarMeses = (p, n) => { let a = Math.floor(p / 100), m = (p % 100) - n; while (m < 1) { m += 12; a--; } return a * 100 + m; };
+
+export function textoProvincias(resumen, sucursal) {
+  if (!resumen?.provincias?.length) return "";
+  const prov = sucursal?.ciudad ? provinciaDeCiudad(sucursal.ciudad) : null;
+  const L = ["\n## MERCADO POR PROVINCIA (base detallada cargada por el administrador)"];
+  L.push(`Hay ventas y precios por provincia de ${mm(resumen.desde)} a ${mm(resumen.hasta)}. Provincias en la base: ${resumen.provincias.join(", ")}.`);
+  L.push("Para cualquier pregunta por provincia o zona (qué se vende en una provincia, participación de una marca o modelo, dónde se vende más un modelo, tendencia mensual local, precios locales, camionetas o SUV en una provincia) USA la herramienta consultar_mercado_provincia antes de responder. No inventes cifras ni digas que no las tienes sin consultarla.");
+  L.push("Uso: dato de mercado local como argumento de venta ('en su provincia la camioneta más vendida es…'); no lo presentes como ventas de la marca ni de la empresa. Si el asesor no nombra provincia y pregunta por 'mi zona' o 'aquí', usa la provincia de su sucursal" + (prov ? ` (${prov})` : "") + " y dilo.");
+  return L.join("\n");
+}
+
+export const TOOL_PROVINCIA = {
+  name: "consultar_mercado_provincia",
+  description:
+    "Consulta ventas (unidades) y precio promedio del mercado automotriz por PROVINCIA. Úsala para: ranking de modelos o marcas en una provincia, " +
+    "en qué provincias se vende más un modelo o una marca, participación local, tendencia mensual en una provincia, precios por zona. " +
+    "Devuelve unidades, participación dentro del filtro y precio promedio ponderado. Dato de mercado, no de la empresa.",
+  input_schema: {
+    type: "object",
+    properties: {
+      provincia: { type: "string", description: "Ej. PICHINCHA, GUAYAS, AZUAY, MANABI, TUNGURAHUA (coincidencia parcial, sin tildes). Vacío = todas." },
+      segmento: { type: "string", description: "Ej. SUV, AUTOMOVIL, PICK UP, VAN, CAMION, BUS. Camioneta = PICK UP. Vacío = todos." },
+      combustible: { type: "string", description: "Ej. ELECTRICO, HIBRIDO, GASOLINA, DIESEL. Vacío = todos." },
+      marca: { type: "string", description: "Filtra por marca (coincidencia parcial)." },
+      modelo: { type: "string", description: "Filtra por modelo (coincidencia parcial)." },
+      desde: { type: "string", description: "Mes inicial AAAA-MM. Por defecto, 3 meses hasta el último dato." },
+      hasta: { type: "string", description: "Mes final AAAA-MM. Por defecto, el último mes con datos." },
+      agrupar_por: { type: "string", enum: ["provincia", "modelo", "marca", "segmento", "combustible", "mes"], description: "Cómo agrupar. 'provincia' (por defecto) para saber dónde se vende; 'modelo' o 'marca' para rankings dentro de una provincia; 'mes' para la tendencia mensual." },
+      orden: { type: "string", enum: ["unidades", "precio_asc", "precio_desc"], description: "Por defecto unidades (más vendidos primero)." },
+      limite: { type: "integer", description: "Máximo de filas (1 a 40). Por defecto 20." },
+    },
+  },
+};
+
+export async function consultarMercadoProvincia(admin, empresaId, a = {}, ultimo) {
+  const aP = (v) => { const x = /^(\d{4})-(\d{1,2})$/.exec(String(v || "").trim()); return x ? Number(x[1]) * 100 + Number(x[2]) : null; };
+  const hasta = aP(a.hasta) ?? ultimo;
+  if (!hasta) return { error: "No hay datos por provincia cargados." };
+  const desde = aP(a.desde) ?? restarMeses(hasta, 2);
+  const fs = filtroExacto(a.segmento, SEG_ALIAS), fc = filtroExacto(a.combustible, COMB_ALIAS);
+  const por = ["provincia", "modelo", "marca", "segmento", "combustible", "mes"].includes(a.agrupar_por) ? a.agrupar_por : "provincia";
+  const prov = a.provincia ? normProvincia(a.provincia) : null;
+  const { data, error } = await admin.rpc("mercado_provincias", {
+    p_empresa: empresaId, p_desde: desde, p_hasta: hasta,
+    p_provincia: prov, p_marca: a.marca?.trim() || null, p_modelo: a.modelo?.trim() || null,
+    p_segmento: fs ? fs.canon : null, p_combustible: fc ? fc.canon : null,
+    p_agrupar: por, p_orden: ["precio_asc", "precio_desc"].includes(a.orden) ? a.orden : "unidades",
+    p_limite: Math.min(Math.max(parseInt(a.limite, 10) || 20, 1), 40),
+  });
+  if (error) return { error: "No se pudo consultar el mercado por provincia" };
+  return {
+    periodo: `${mm(desde)} a ${mm(hasta)}`,
+    filtros_aplicados: { provincia: prov || "todas", segmento: fs ? fs.canon.toUpperCase() : "todos", combustible: fc ? fc.canon.toUpperCase() : "todos", marca: a.marca || "todas", modelo: a.modelo || "todos" },
+    agrupado_por: por,
+    ...data,
+    nota: data?.resultados?.length ? "Precio = promedio ponderado por unidades; es dato de mercado, no precio de lista de la empresa. Cada fila de 'modelo' separa combustible." : "Sin coincidencias: revisa provincia, segmento y período.",
   };
 }

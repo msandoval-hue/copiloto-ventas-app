@@ -1,4 +1,4 @@
-import { textoMercado, TOOL_MERCADO, consultarMercado } from "./mercado.js";
+import { textoMercado, TOOL_MERCADO, consultarMercado, TOOL_PROVINCIA, consultarMercadoProvincia, textoProvincias } from "./mercado.js";
 import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import { registrarCalidad, calificarYGuardar } from "./calidad.js";
@@ -147,7 +147,16 @@ function crearContexto(admin) {
       /* el mercado es opcional: si falla, el copiloto sigue sin esa sección */
     }
 
-    return { texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre, filas: filasMercado, mercadoHasta: filasMercado.reduce((m, r) => Math.max(m, r.anio * 100 + r.mes), 0) || null };
+    // Mercado por provincia: solo un resumen (las consultas se hacen con SQL agregado en la base)
+    let resumenProv = null;
+    try {
+      const { data, error } = await admin.rpc("mercado_provincias_resumen", { p_empresa: empresaId });
+      if (!error && data?.provincias?.length) resumenProv = data;
+    } catch {
+      /* opcional: si la migración 08 aún no se ejecutó, el copiloto sigue sin esta sección */
+    }
+
+    return { texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre, filas: filasMercado, resumenProv, empresaId, mercadoHasta: filasMercado.reduce((m, r) => Math.max(m, r.anio * 100 + r.mes), 0) || null };
   }
 
   return {
@@ -363,9 +372,9 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
         const system = [
           { type: "text", text: await conocimiento.obtener(), cache_control: { type: "ephemeral" } },
           { type: "text", text: ctx.texto, cache_control: { type: "ephemeral" } },
-          { type: "text", text: bloqueVendedor(p, sucursal) },
+          { type: "text", text: bloqueVendedor(p, sucursal) + (ctx.resumenProv ? textoProvincias(ctx.resumenProv, sucursal) : "") },
         ];
-        const tools = ctx.filas?.length ? [TOOL_MERCADO] : undefined;
+        const tools = [...(ctx.filas?.length ? [TOOL_MERCADO] : []), ...(ctx.resumenProv ? [TOOL_PROVINCIA] : [])];
         const conv = [...messages];
         const RONDAS = 6; // la última ronda obliga a responder con lo que ya se consultó
         let textos = "";
@@ -373,7 +382,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
           const ultima = vuelta === RONDAS - 1;
           r = await anthropic.messages.create({
             model, max_tokens: 2500, system, messages: conv,
-            ...(tools ? { tools, ...(ultima ? { tool_choice: { type: "none" } } : {}) } : {}),
+            ...(tools.length ? { tools, ...(ultima ? { tool_choice: { type: "none" } } : {}) } : {}),
           });
           const u0 = r.usage || {};
           uso.entrada += (u0.input_tokens || 0) + (u0.cache_creation_input_tokens || 0) + (u0.cache_read_input_tokens || 0);
@@ -383,15 +392,16 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
           const llamadas = r.content.filter((b) => b.type === "tool_use");
           if (!llamadas.length) break;
           conv.push({ role: "assistant", content: r.content });
-          conv.push({
-            role: "user",
-            content: llamadas.map((c) => {
-              let out;
-              try { out = c.name === TOOL_MERCADO.name ? consultarMercado(ctx.filas, c.input || {}) : { error: "Herramienta desconocida" }; }
-              catch { out = { error: "No se pudo consultar" }; }
-              return { type: "tool_result", tool_use_id: c.id, content: JSON.stringify(out) };
-            }),
-          });
+          const resultados = await Promise.all(llamadas.map(async (c) => {
+            let out;
+            try {
+              if (c.name === TOOL_MERCADO.name) out = consultarMercado(ctx.filas, c.input || {});
+              else if (c.name === TOOL_PROVINCIA.name && ctx.resumenProv) out = await consultarMercadoProvincia(admin, ctx.empresaId, c.input || {}, ctx.resumenProv.hasta);
+              else out = { error: "Herramienta desconocida" };
+            } catch { out = { error: "No se pudo consultar" }; }
+            return { type: "tool_result", tool_use_id: c.id, content: JSON.stringify(out) };
+          }));
+          conv.push({ role: "user", content: resultados });
         }
         r.__textos = textos;
       } catch (e) {

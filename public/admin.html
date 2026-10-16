@@ -355,7 +355,7 @@ async function vMercado() {
     const cargas = await api("/api/admin/mercado");
     $("main").innerHTML = `
       <div class="panel"><h3 style="margin-top:0">Cargar base de mercado (CSV)</h3>
-        <p class="mut" style="margin-top:0">Columnas: <b>anio, mes, marca, modelo, combustible, segmento, cantidad, precio</b> (el orden de las columnas no importa; acepta coma o punto y coma; anio y mes son números, el mes 1-12). Si subes de nuevo un mes ya cargado de la misma fuente, lo reemplaza sin duplicar.</p>
+        <p class="mut" style="margin-top:0">Columnas: <b>anio, mes, marca, modelo, combustible, segmento, cantidad (o venta), precio</b> y, opcional, <b>provincia</b> (el orden no importa; acepta coma o punto y coma; el mes es 1-12). Con provincia, el copiloto puede analizar el mercado por provincia; el total nacional se calcula solo. Si subes de nuevo un mes ya cargado <b>con el mismo nombre de fuente</b>, lo reemplaza sin duplicar.</p>
         <div class="grid">
           <label>Destino<select id="m_dest"><option value="">🌎 Mercado general (todas las empresas, ej. AEADE)</option>${empresas.map(e => `<option value="${e.id}">${esc(e.nombre)} (solo esta empresa)</option>`).join("")}</select></label>
           <label>Fuente (nombre para identificar la carga)<input id="m_fuente" value="AEADE" maxlength="60"></label>
@@ -365,11 +365,11 @@ async function vMercado() {
         <div id="m_res"></div>
       </div>
       <h3>Datos cargados</h3>
-      <div class="tablewrap"><table><thead><tr><th>Destino</th><th>Fuente</th><th>Filas</th><th>Unidades</th><th>Desde</th><th>Hasta</th><th></th></tr></thead><tbody>
-      ${cargas.map(c => `<tr><td>${c.empresa_id ? esc(nomEmp(c.empresa_id)) : "🌎 General"}</td><td>${esc(c.fuente)}</td><td>${c.filas.toLocaleString("es-EC")}</td><td>${c.unidades.toLocaleString("es-EC")}</td><td>${ymTxt(c.desde)}</td><td>${ymTxt(c.hasta)}</td><td><button class="s m_del" data-e="${c.empresa_id || ""}" data-f="${esc(c.fuente)}">Borrar</button></td></tr>`).join("") || '<tr><td colspan="7" class="mut">Aún no hay datos de mercado cargados</td></tr>'}
+      <div class="tablewrap"><table><thead><tr><th>Destino</th><th>Fuente</th><th>Filas</th><th>Unidades</th><th>Por provincia</th><th>Desde</th><th>Hasta</th><th></th></tr></thead><tbody>
+      ${cargas.map(c => `<tr><td>${c.empresa_id ? esc(nomEmp(c.empresa_id)) : "🌎 General"}</td><td>${esc(c.fuente)}</td><td>${c.filas.toLocaleString("es-EC")}</td><td>${c.unidades.toLocaleString("es-EC")}</td><td>${c.filas_prov ? "✓ " + c.filas_prov.toLocaleString("es-EC") + " filas" : "—"}</td><td>${ymTxt(c.desde)}</td><td>${ymTxt(c.hasta)}</td><td><button class="s m_del" data-e="${c.empresa_id || ""}" data-f="${esc(c.fuente)}">Borrar</button></td></tr>`).join("") || '<tr><td colspan="8" class="mut">Aún no hay datos de mercado cargados</td></tr>'}
       </tbody></table></div>`;
     $("m_plantilla").onclick = () => {
-      const csv = "anio,mes,marca,modelo,combustible,segmento,cantidad,precio\n2026,9,Nissan,Kicks,Gasolina,SUV,120,25990\n2026,9,BYD,Dolphin,Eléctrico,Hatchback,45,28990\n";
+      const csv = "anio,mes,marca,modelo,combustible,segmento,provincia,cantidad,precio\n2026,9,Nissan,Kicks,Gasolina,SUV,Pichincha,60,25990\n2026,9,Nissan,Kicks,Gasolina,SUV,Guayas,40,25990\n2026,9,BYD,Dolphin,Eléctrico,Hatchback,Azuay,12,28990\n";
       const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv" })); a.download = "plantilla_mercado.csv"; a.click();
     };
     const enviar = async (simular, aceptar) => {
@@ -379,7 +379,7 @@ async function vMercado() {
     };
     const pintarRes = (r, final) => {
       $("m_res").innerHTML = `<div class="panel" style="margin-top:12px">
-        <b>${final ? "✅ Cargado" : "Revisión del archivo"}</b>: ${r.validas.toLocaleString("es-EC")} filas válidas de ${r.leidas.toLocaleString("es-EC")} · ${r.meses} meses (${ymTxt(r.desde)} a ${ymTxt(r.hasta)}) · ${r.marcas} marcas · ${r.modelos} modelos · ${r.unidades.toLocaleString("es-EC")} unidades
+        <b>${final ? "✅ Cargado" : "Revisión del archivo"}</b>: ${r.validas.toLocaleString("es-EC")} filas válidas de ${r.leidas.toLocaleString("es-EC")} · ${r.meses} meses (${ymTxt(r.desde)} a ${ymTxt(r.hasta)}) · ${r.marcas} marcas · ${r.modelos} modelos ${r.provincias ? "· " + r.provincias + " provincias " : ""}· ${r.unidades.toLocaleString("es-EC")} unidades
         ${r.con_error ? `<p style="color:#c0392b;margin:8px 0 0">${r.con_error} filas con error:<br>${r.errores.map(esc).join("<br>")}${r.con_error > r.errores.length ? "<br>…" : ""}</p>` : ""}
         ${final ? "" : `<div class="row"><button class="p" id="m_cargar">${r.con_error ? "Cargar solo las filas válidas" : "Cargar"}</button></div>`}</div>`;
       if (!final) $("m_cargar").onclick = () => act(async () => { const x = await enviar(false, true); pintarRes(x, true); aviso("Mercado cargado ✓"); setTimeout(vMercado, 50); });

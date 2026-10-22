@@ -7,6 +7,7 @@ import { readFileSync } from "fs";
 import { pathToFileURL } from "url";
 import { registrarCasillero } from "./casillero.js";
 import { registrarAdmin } from "./admin.js";
+import { cargarFichas, textoFichas, TOOLS_FICHAS, NOMBRES_FICHAS, ejecutarFichas } from "./fichas.js";
 
 const TZ = "America/Guayaquil";
 
@@ -34,6 +35,8 @@ function cargarBase() {
     .filter(Boolean)
     .join("\n\n");
 }
+// Reglas de fichas/comparativos: se agregan siempre (aunque el conocimiento venga de la tabla "conocimiento").
+const REGLAS_FICHAS = leer("./prompts/fichas.md");
 
 const hoyEC = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date()); // YYYY-MM-DD
 const dinero = (n) => (n == null ? "s/d" : "$" + Number(n).toLocaleString("es-EC"));
@@ -45,6 +48,13 @@ const diasEntre = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
 // ---------------------------------------------------------------------------
 function crearContexto(admin) {
   const cache = new Map();
+  let fichasCache = null;
+  async function fichasGlobales() {
+    if (fichasCache && Date.now() - fichasCache.t < 300_000) return fichasCache.v;
+    const v = await cargarFichas(admin).catch(() => []);
+    fichasCache = { t: Date.now(), v };
+    return v;
+  }
 
   async function construir(empresaId) {
     const hoy = hoyEC();
@@ -156,7 +166,12 @@ function crearContexto(admin) {
       /* opcional: si la migración 08 aún no se ejecutó, el copiloto sigue sin esta sección */
     }
 
-    return { texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre, filas: filasMercado, resumenProv, empresaId, mercadoHasta: filasMercado.reduce((m, r) => Math.max(m, r.anio * 100 + r.mes), 0) || null };
+    const fichas = await fichasGlobales();
+    const marcasPropias = (marcas.data || []).map((m) => m.marca);
+    const tf = textoFichas(fichas, marcasPropias);
+    if (tf) L.push(tf);
+
+    return { fichas, marcasPropias, texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre, filas: filasMercado, resumenProv, empresaId, mercadoHasta: filasMercado.reduce((m, r) => Math.max(m, r.anio * 100 + r.mes), 0) || null };
   }
 
   return {
@@ -167,7 +182,7 @@ function crearContexto(admin) {
       cache.set(empresaId, { t: Date.now(), v });
       return v;
     },
-    invalidar: () => cache.clear(),
+    invalidar: () => { cache.clear(); fichasCache = null; },
   };
 }
 
@@ -370,11 +385,11 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
       const uso = { entrada: 0, salida: 0 };
       try {
         const system = [
-          { type: "text", text: await conocimiento.obtener(), cache_control: { type: "ephemeral" } },
+          { type: "text", text: (await conocimiento.obtener()) + (REGLAS_FICHAS ? "\n\n" + REGLAS_FICHAS : ""), cache_control: { type: "ephemeral" } },
           { type: "text", text: ctx.texto, cache_control: { type: "ephemeral" } },
           { type: "text", text: bloqueVendedor(p, sucursal) + (ctx.resumenProv ? textoProvincias(ctx.resumenProv, sucursal) : "") },
         ];
-        const tools = [...(ctx.filas?.length ? [TOOL_MERCADO] : []), ...(ctx.resumenProv ? [TOOL_PROVINCIA] : [])];
+        const tools = [...(ctx.filas?.length ? [TOOL_MERCADO] : []), ...(ctx.resumenProv ? [TOOL_PROVINCIA] : []), ...(ctx.fichas?.length ? TOOLS_FICHAS : [])];
         const conv = [...messages];
         const RONDAS = 6; // la última ronda obliga a responder con lo que ya se consultó
         let textos = "";
@@ -397,6 +412,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
             try {
               if (c.name === TOOL_MERCADO.name) out = consultarMercado(ctx.filas, c.input || {});
               else if (c.name === TOOL_PROVINCIA.name && ctx.resumenProv) out = await consultarMercadoProvincia(admin, ctx.empresaId, c.input || {}, ctx.resumenProv.hasta);
+              else if (NOMBRES_FICHAS.has(c.name) && ctx.fichas?.length) out = await ejecutarFichas(c.name, c.input || {}, { fichas: ctx.fichas, filasMercado: ctx.filas || [], marcasPropias: ctx.marcasPropias, admin, empresaId: ctx.empresaId });
               else out = { error: "Herramienta desconocida" };
             } catch { out = { error: "No se pudo consultar" }; }
             return { type: "tool_result", tool_use_id: c.id, content: JSON.stringify(out) };

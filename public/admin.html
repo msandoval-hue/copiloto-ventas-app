@@ -55,6 +55,7 @@
   <button data-t="casillero">Casillero</button>
   <button data-t="consultas">Consultas</button>
   <button data-t="calidad">Calidad de preguntas</button>
+  <button data-t="fichas">Fichas técnicas</button>
 </nav>
 <main id="main">Cargando…</main>
 <div id="msg"></div>
@@ -123,6 +124,24 @@ const IDLE_MS = 2 * 60 * 60 * 1000; // 2 horas sin actividad
 $("tabs").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; tab = b.dataset.t;
   document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b)); pintar(); };
 
+// ---------- fichas técnicas: lo cargado y lo que los asesores buscaron sin ficha ----------
+async function vFichas() {
+  const m = $("main"); m.innerHTML = "Cargando…";
+  const [r, f] = await Promise.all([api("/api/admin/fichas/resumen"), api("/api/admin/fichas/faltantes")]);
+  m.innerHTML = `<h2>Fichas técnicas</h2>
+    <p class="mut">${r.total} versiones cargadas. Para cargar más: ejecuta el SQL de fichas en Supabase y pulsa "Refrescar catálogo".</p>
+    <div class="tablewrap"><table><thead><tr><th>Segmento</th><th>Versiones</th><th>Marcas</th><th>Confianza alta</th><th>Media</th><th>Baja</th></tr></thead><tbody>
+    ${r.segmentos.map(s => `<tr><td>${esc(s.segmento)}</td><td>${s.total}</td><td>${s.marcas}</td><td>${s.Alta || 0}</td><td>${s.Media || 0}</td><td>${s.Baja || 0}</td></tr>`).join("") || '<tr><td colspan="6" class="mut">Sin fichas</td></tr>'}
+    </tbody></table></div>
+    <p><button id="fRef">Refrescar catálogo</button></p>
+    <h3>Modelos que los asesores buscaron y no tienen ficha</h3>
+    <div class="tablewrap"><table><thead><tr><th>Lo que buscaron</th><th>Empresa</th><th>Veces</th><th>Última</th><th></th></tr></thead><tbody>
+    ${f.map(x => `<tr><td>${esc(x.consulta)}</td><td>${esc(x.empresa)}</td><td><b>${x.veces}</b></td><td>${new Date(x.ultima).toLocaleDateString("es-EC", { timeZone: "America/Guayaquil" })}</td><td><button data-q="${x.id}">Quitar</button></td></tr>`).join("") || '<tr><td colspan="5" class="mut">Nada pendiente: todo lo que buscaron tiene ficha.</td></tr>'}
+    </tbody></table></div><p class="mut">Los más pedidos van primero: esas son las fichas que conviene conseguir. Al cargarla, pulsa Quitar.</p>`;
+  $("fRef").onclick = () => act(async () => { await api("/api/admin/fichas/refrescar", { method: "POST" }); aviso("Catálogo refrescado"); });
+  m.querySelectorAll("button[data-q]").forEach(b => b.onclick = () => act(async () => { await api("/api/admin/fichas/faltantes/quitar", { method: "POST", body: { id: Number(b.dataset.q) } }); vFichas(); }));
+}
+
 async function iniciar() {
   await act(async () => {
     yo = await api("/api/me");
@@ -130,7 +149,7 @@ async function iniciar() {
     pintar();
   });
 }
-const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, mercado: vMercado, casillero: vCasillero, consultas: vConsultas, calidad: vCalidad })[tab]();
+const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, mercado: vMercado, casillero: vCasillero, consultas: vConsultas, calidad: vCalidad, fichas: vFichas })[tab]();
 const optEmp = (sel) => '<option value="">— Sin empresa —</option>' + empresas.map(e => `<option value="${e.id}" ${e.id === sel ? "selected" : ""}>${esc(e.nombre)}</option>`).join("");
 const nomEmp = (id) => empresas.find(e => e.id === id)?.nombre || "—";
 const nomSuc = (id) => { for (const e of empresas) { const s = e.sucursales.find(x => x.id === id); if (s) return s.nombre; } return "—"; };

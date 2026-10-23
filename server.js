@@ -7,7 +7,10 @@ import { readFileSync } from "fs";
 import { pathToFileURL } from "url";
 import { registrarCasillero } from "./casillero.js";
 import { registrarAdmin } from "./admin.js";
+import { registrarFichasAdmin } from "./fichas_admin.js";
 import { cargarFichas, textoFichas, TOOLS_FICHAS, NOMBRES_FICHAS, ejecutarFichas } from "./fichas.js";
+import { cargarParametros, TOOL_COSTO, ejecutarCosto } from "./costouso.js";
+import { fichaComercial, modelosDeLaEmpresa } from "./fichacomercial.js";
 
 const TZ = "America/Guayaquil";
 
@@ -168,10 +171,11 @@ function crearContexto(admin) {
 
     const fichas = await fichasGlobales();
     const marcasPropias = (marcas.data || []).map((m) => m.marca);
+    const params = await cargarParametros(admin);
     const tf = textoFichas(fichas, marcasPropias);
     if (tf) L.push(tf);
 
-    return { fichas, marcasPropias, texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre, filas: filasMercado, resumenProv, empresaId, mercadoHasta: filasMercado.reduce((m, r) => Math.max(m, r.anio * 100 + r.mes), 0) || null };
+    return { fichas, marcasPropias, params, promos: promos.data || [], productos: productos.data || [], texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre, filas: filasMercado, resumenProv, empresaId, mercadoHasta: filasMercado.reduce((m, r) => Math.max(m, r.anio * 100 + r.mes), 0) || null };
   }
 
   return {
@@ -336,7 +340,30 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
 
   // La descripción y el teléfono del asesor los define solo el administrador (desde la pestaña Usuarios).
 
+  // Fichas para el asesor: lista de modelos de su empresa y ficha comercial de una página
+  app.get("/api/fichas/modelos", auth, async (req, res) => {
+    try {
+      const empresaId = empresaDe(req.perfil, req.query.empresa_id);
+      const ctx = empresaId ? await contextoEmpresa(empresaId) : null;
+      if (!ctx) return res.status(403).json({ error: "Sin empresa asignada" });
+      res.json({ empresa: ctx.nombre, modelos: modelosDeLaEmpresa(ctx.fichas, ctx.marcasPropias) });
+    } catch (e) { console.error(e); res.status(500).json({ error: "No se pudo cargar la lista de modelos" }); }
+  });
+  app.get("/api/ficha-comercial", auth, async (req, res) => {
+    try {
+      const empresaId = empresaDe(req.perfil, req.query.empresa_id);
+      const ctx = empresaId ? await contextoEmpresa(empresaId) : null;
+      if (!ctx) return res.status(403).json({ error: "Sin empresa asignada" });
+      const q = String(req.query.modelo || "").slice(0, 80).trim();
+      if (!q) return res.status(400).json({ error: "Falta el modelo" });
+      const out = await fichaComercial(q, { fichas: ctx.fichas, filasMercado: ctx.filas || [], marcasPropias: ctx.marcasPropias, promos: ctx.promos, productos: ctx.productos, params: ctx.params, empresaNombre: ctx.nombre, empresaId });
+      if (out.error) return res.status(404).json(out);
+      res.json(out);
+    } catch (e) { console.error(e); res.status(500).json({ error: "No se pudo generar la ficha" }); }
+  });
+
   registrarAdmin(app, { admin, auth, invalidarEmpresas: empresas.invalidar, invalidarBase: conocimiento.invalidar });
+  registrarFichasAdmin(app, { admin, auth, invalidarFichas: empresas.invalidar });
   registrarCasillero(app, { admin, auth });
   registrarCalidad(app, { admin, auth });
 
@@ -389,7 +416,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
           { type: "text", text: ctx.texto, cache_control: { type: "ephemeral" } },
           { type: "text", text: bloqueVendedor(p, sucursal) + (ctx.resumenProv ? textoProvincias(ctx.resumenProv, sucursal) : "") },
         ];
-        const tools = [...(ctx.filas?.length ? [TOOL_MERCADO] : []), ...(ctx.resumenProv ? [TOOL_PROVINCIA] : []), ...(ctx.fichas?.length ? TOOLS_FICHAS : [])];
+        const tools = [...(ctx.filas?.length ? [TOOL_MERCADO] : []), ...(ctx.resumenProv ? [TOOL_PROVINCIA] : []), ...(ctx.fichas?.length ? [...TOOLS_FICHAS, TOOL_COSTO] : [])];
         const conv = [...messages];
         const RONDAS = 6; // la última ronda obliga a responder con lo que ya se consultó
         let textos = "";
@@ -412,6 +439,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
             try {
               if (c.name === TOOL_MERCADO.name) out = consultarMercado(ctx.filas, c.input || {});
               else if (c.name === TOOL_PROVINCIA.name && ctx.resumenProv) out = await consultarMercadoProvincia(admin, ctx.empresaId, c.input || {}, ctx.resumenProv.hasta);
+              else if (c.name === TOOL_COSTO.name && ctx.fichas?.length) out = ejecutarCosto(c.input || {}, { fichas: ctx.fichas, marcasPropias: ctx.marcasPropias, params: ctx.params });
               else if (NOMBRES_FICHAS.has(c.name) && ctx.fichas?.length) out = await ejecutarFichas(c.name, c.input || {}, { fichas: ctx.fichas, filasMercado: ctx.filas || [], marcasPropias: ctx.marcasPropias, admin, empresaId: ctx.empresaId });
               else out = { error: "Herramienta desconocida" };
             } catch { out = { error: "No se pudo consultar" }; }

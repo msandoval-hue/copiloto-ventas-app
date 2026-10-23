@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copiloto de Ventas</title>
+<style>
+  :root { --bg:#f4f6f8; --card:#fff; --brand:#0b5fff; --ink:#1b2430; --mute:#6b7787; --me:#dce8ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); height:100dvh; display:flex; flex-direction:column; }
+  header { background:var(--brand); color:#fff; padding:8px 16px 10px; }
+  header .top { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+  header h1 { font-size:14px; margin:0; font-weight:600; opacity:.9; }
+  header .right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  header button, header select, header a { background:rgba(255,255,255,.2); border:0; color:#fff; padding:5px 10px; border-radius:6px; cursor:pointer; font:inherit; font-size:12px; text-decoration:none; }
+  header select option { color:#1b2430; }
+  header .info { display:flex; justify-content:space-between; align-items:center; gap:8px 16px; flex-wrap:wrap; margin-top:6px; }
+  header .quien { display:flex; flex-direction:column; line-height:1.2; }
+  #h_nombre { font-size:20px; font-weight:700; }
+  #h_empresa { font-size:13px; opacity:.95; }
+  header .chips2 { display:flex; gap:8px; flex-wrap:wrap; }
+  .pill { background:rgba(255,255,255,.18); border-radius:14px; padding:4px 10px; font-size:12px; white-space:nowrap; }
+  #cupo { font-weight:700; }
+  #cupo.poco { background:#ffb020; color:#3a2600; }
+  #cupo.cero { background:#d93025; color:#fff; }
+  #t:disabled, form#f button:disabled { cursor:not-allowed; }
+  #t:disabled { background:#eef1f5; }
+  #chat { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width:88%; padding:10px 12px; border-radius:12px; line-height:1.45; white-space:pre-wrap; background:var(--card); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .me { align-self:flex-end; background:var(--me); }
+  .bot { align-self:flex-start; }
+  .bot blockquote { margin:8px 0; padding:8px 10px; background:#f1f7ee; border-left:4px solid #3aa655; border-radius:4px; position:relative; }
+  .copy { display:inline-block; margin-top:4px; font-size:12px; background:#fff; border:1px solid #cfd6df; border-radius:6px; padding:2px 8px; cursor:pointer; color:var(--mute); }
+  .fb { display:flex; gap:6px; margin-top:6px; }
+  .fb button { background:#fff; border:1px solid #cfd6df; border-radius:6px; padding:2px 8px; cursor:pointer; font-size:14px; }
+  .fb button:disabled { opacity:.5; cursor:default; }
+  #chips { display:flex; gap:8px; flex-wrap:wrap; padding:0 14px 8px; }
+  #chips button { background:#fff; border:1px solid #cfd6df; border-radius:16px; padding:6px 12px; cursor:pointer; font-size:13px; }
+  form#f { display:flex; gap:8px; padding:10px; background:#fff; border-top:1px solid #e1e6ec; }
+  textarea { flex:1; resize:none; border:1px solid #cfd6df; border-radius:10px; padding:10px; font:inherit; max-height:120px; }
+  form#f button { background:var(--brand); color:#fff; border:0; border-radius:10px; padding:0 18px; font-weight:600; cursor:pointer; }
+  form#f button:disabled { opacity:.5; }
+  /* Pantalla de acceso */
+  #casAviso { background:#fff4e0; color:#8a5200; border-bottom:1px solid #f2d9a6; padding:8px 14px; font-size:13px; align-items:center; justify-content:space-between; gap:10px; }
+  #casAviso button { background:#0b5fff; color:#fff; border:0; border-radius:8px; padding:5px 12px; cursor:pointer; font:inherit; font-size:13px; }
+  .badge { background:#ff5a4f; color:#fff; border-radius:10px; padding:0 6px; margin-left:5px; font-size:11px; }
+  #casillero { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:flex-end; justify-content:center; z-index:9; }
+  #casillero .box { background:#fff; width:100%; max-width:560px; max-height:85vh; overflow:auto; border-radius:14px 14px 0 0; padding:16px; }
+  #casillero h2 { margin:0 0 4px; font-size:18px; } #casillero .mut { color:#6b7787; font-size:13px; }
+  .arch { border:1px solid #e1e6ec; border-radius:10px; padding:10px 12px; margin:10px 0; display:flex; gap:10px; align-items:center; }
+  .arch .info { flex:1; min-width:0; } .arch b { font-size:14px; } .arch small { display:block; color:#6b7787; font-size:12px; margin-top:2px; }
+  .arch button { background:#0b5fff; color:#fff; border:0; border-radius:8px; padding:8px 12px; cursor:pointer; font:inherit; font-size:13px; white-space:nowrap; }
+  .nuevo { background:#ff5a4f; color:#fff; border-radius:8px; padding:0 6px; font-size:11px; margin-left:6px; }
+  /* Fichas comerciales */
+  #fichas { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:flex-end; justify-content:center; z-index:9; }
+  #fichas .box { background:#fff; width:100%; max-width:640px; max-height:90vh; overflow:auto; border-radius:14px 14px 0 0; padding:16px; }
+  #fichas h2 { margin:0 0 4px; font-size:18px; } #fichas .mut { color:#6b7787; font-size:13px; }
+  #fichas select, #fichas .acc button { font:inherit; padding:9px 12px; border-radius:8px; border:1px solid #cfd6df; }
+  #fichas .acc { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+  #fichas .acc button { background:#0b5fff; color:#fff; border:0; cursor:pointer; } #fichas .acc button.sec { background:#e9eef5; color:#222; }
+  .fc h3 { margin:2px 0 0; font-size:20px; } .fc ul { padding-left:18px; } .fc li { margin:6px 0; }
+  .fc .promo { background:#fff4e0; border-radius:8px; padding:8px 10px; margin:8px 0; font-size:14px; }
+  .fc .aviso { color:#8a5200; font-size:12px; margin:4px 0; } .fc .pie { color:#6b7787; font-size:11px; margin-top:12px; }
+  .fc table { border-collapse:collapse; width:100%; font-size:13px; } .fc td, .fc th { border-bottom:1px solid #e1e6ec; padding:4px 6px; text-align:left; }
+  @media print { body * { visibility:hidden; } #fichaCard, #fichaCard * { visibility:visible; } #fichaCard { position:absolute; left:0; top:0; width:100%; } }
+  /* Termómetro de preguntas */
+  #termo { cursor:pointer; display:inline-flex; align-items:center; gap:6px; border:0; color:#fff; font:inherit; font-size:12px; }
+  #termo .tk { width:54px; height:8px; border-radius:4px; background:rgba(255,255,255,.3); overflow:hidden; }
+  #termo .tk i { display:block; height:100%; border-radius:4px; background:#fff; }
+  #termoPanel { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:flex-end; justify-content:center; z-index:9; }
+  #termoPanel .box { background:#fff; width:100%; max-width:560px; max-height:88vh; overflow:auto; border-radius:14px 14px 0 0; padding:16px; }
+  #termoPanel h2 { margin:0 0 2px; font-size:18px; } #termoPanel .mut { color:#6b7787; font-size:13px; }
+  .gauge { position:relative; height:16px; border-radius:8px; margin:26px 0 6px; background:linear-gradient(90deg,#e5584e 0 40%,#f2b134 40% 70%,#8fcf7d 70% 85%,#2e9d57 85% 100%); }
+  .gauge b { position:absolute; top:-9px; width:4px; height:34px; background:#1b2430; border-radius:2px; transform:translateX(-2px); }
+  .gauge em { position:absolute; top:-26px; transform:translateX(-50%); font-style:normal; font-weight:700; font-size:13px; }
+  .gscale { display:flex; justify-content:space-between; font-size:11px; color:#6b7787; }
+  .crit { display:grid; grid-template-columns:150px 1fr 38px; align-items:center; gap:8px; font-size:13px; margin:5px 0; }
+  .crit .bar { height:9px; background:#eef1f5; border-radius:5px; overflow:hidden; } .crit .bar i { display:block; height:100%; border-radius:5px; }
+  .foco { background:#eef5ff; border-left:4px solid #0b5fff; border-radius:6px; padding:8px 10px; margin:12px 0; font-size:14px; }
+  #login { position:fixed; inset:0; background:var(--bg); display:none; align-items:center; justify-content:center; padding:16px; z-index:10; }
+  #login .box { background:#fff; border-radius:14px; box-shadow:0 4px 18px rgba(0,0,0,.12); padding:24px; width:100%; max-width:340px; display:flex; flex-direction:column; gap:12px; }
+  #login h2 { margin:0; font-size:20px; }
+  #login p { margin:0; color:var(--mute); font-size:14px; }
+  #login input { border:1px solid #cfd6df; border-radius:8px; padding:10px; font:inherit; }
+  #login button { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:10px; font-weight:600; cursor:pointer; font:inherit; }
+  #login button:disabled { opacity:.5; }
+  #lerr { color:#c0392b; font-size:13px; min-height:16px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>🚗 Copiloto de Ventas</h1>
+    <div class="right">
+      <select id="empresa" style="display:none"></select>
+      <a id="adminlink" href="/admin.html" style="display:none">⚙️ Admin</a>
+      <button id="fichBtn">📄 Fichas</button>
+      <button id="casBtn">📁 Casillero<span id="casN" class="badge" style="display:none"></span></button>
+      <button id="reset">Nueva consulta</button>
+      <button id="salir">Salir</button>
+    </div>
+  </div>
+  <div class="info">
+    <div class="quien"><span id="h_nombre"></span><span id="h_empresa"></span></div>
+    <div class="chips2">
+      <span class="pill" id="h_mercado" style="display:none"></span>
+      <button class="pill" id="termo" title="Cómo va la estructura de tus preguntas"></button>
+      <span class="pill" id="cupo"></span>
+    </div>
+  </div>
+</header>
+<div id="casAviso" style="display:none"><span id="casAvisoT"></span><button id="casAvisoB">Ver</button></div>
+<div id="chat"></div>
+<div id="chips">
+  <button>Un cliente no me responde, ¿qué le escribo?</button>
+  <button>Cliente que no vuelve al concesionario</button>
+  <button>Retomar un cliente de hace más de 30 días</button>
+  <button data-fill="El cliente compara el [modelo nuestro] con el [modelo de la competencia]. ¿Cómo lo ayudo a decidir?">⚖️ El cliente compara dos modelos</button>
+  <button data-fill="El cliente quiere un [modelo de otra marca]. ¿Qué le ofrezco de nuestra marca?">🎯 Qué le ofrezco a quien quiere otro modelo</button>
+  <button data-fill="Recomiéndame un modelo para este cliente: [pasajeros], [presupuesto], [uso: ciudad/carretera/trabajo], [km al año].">🧭 Recomiéndame un modelo para este cliente</button>
+</div>
+<form id="f">
+  <textarea id="t" rows="1" placeholder="Cuéntame tu situación con el cliente..."></textarea>
+  <button id="send">Enviar</button>
+</form>
+
+<div id="casillero"><div class="box">
+  <h2>📁 Mi casillero</h2><p class="mut">Material que tu administrador dejó para ti.</p>
+  <div id="casLista"></div>
+  <button id="casCerrar" style="width:100%;margin-top:6px;padding:10px;border:0;border-radius:8px;background:#e9eef5;cursor:pointer;font:inherit">Cerrar</button>
+</div></div>
+
+<div id="fichas"><div class="box">
+  <h2>📄 Ficha comercial</h2><p class="mut">Elige un modelo de tu empresa: arma una página con los puntos fuertes, la promoción vigente y un texto listo para WhatsApp.</p>
+  <select id="fichSel" style="width:100%"><option value="">Cargando modelos…</option></select>
+  <div id="fichaCard" class="fc"></div>
+  <div class="acc" id="fichAcc" style="display:none"><button id="fichWa">Copiar texto para WhatsApp</button><button id="fichPrint" class="sec">Imprimir / PDF</button><button id="fichAsk" class="sec">Armar argumentos con el copiloto</button></div>
+  <button id="fichCerrar" style="width:100%;margin-top:6px;padding:10px;border:0;border-radius:8px;background:#e9eef5;cursor:pointer;font:inherit">Cerrar</button>
+</div></div>
+<div id="termoPanel"><div class="box">
+  <h2>🌡️ Termómetro de mis preguntas</h2><p class="mut">Mide qué tan completo le cuentas cada caso al copiloto. Mientras más completo, mejor y más rápida es la respuesta.</p>
+  <div id="termoCuerpo"></div>
+  <button id="termoCerrar" style="width:100%;margin-top:6px;padding:10px;border:0;border-radius:8px;background:#e9eef5;cursor:pointer;font:inherit">Cerrar</button>
+</div></div>
+
+<div id="login">
+  <form class="box" id="lf">
+    <h2>🚗 Copiloto de Ventas</h2>
+    <p>Ingresa con tu correo y clave.</p>
+    <input id="le" type="email" placeholder="Correo" autocomplete="username" required>
+    <input id="lp" type="password" placeholder="Clave" autocomplete="current-password" required>
+    <div id="lerr"></div>
+    <button id="lb">Ingresar</button>
+  </form>
+</div>
+
+<script>
+const chat = document.getElementById("chat");
+const t = document.getElementById("t");
+const send = document.getElementById("send");
+const $ = (id) => document.getElementById(id);
+let history = JSON.parse(sessionStorage.getItem("h") || "[]");
+let me = null;           // datos del usuario (/api/me)
+let empresaSel = "";     // solo administrador
+
+// ---------- sesión (guardada en este navegador) ----------
+function getSess() { try { return JSON.parse(localStorage.getItem("sess") || "null"); } catch { return null; } }
+function setSess(s) { try { if (s) { localStorage.setItem("sess", JSON.stringify(s)); localStorage.setItem("ult_act", String(Date.now())); } else localStorage.removeItem("sess"); } catch {} }
+
+async function refrescar() {
+  const s = getSess(); if (!s?.refresh_token) return false;
+  try {
+    const r = await fetch("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: s.refresh_token }) });
+    if (!r.ok) return false;
+    setSess(await r.json()); return true;
+  } catch { return false; }
+}
+
+// fetch con el token; si venció, intenta renovar una vez
+async function api(path, opts = {}, reintento = true) {
+  const s = getSess();
+  const r = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(opts.headers || {}), Authorization: "Bearer " + (s?.access_token || "") } });
+  if (r.status === 401 && reintento && (await refrescar())) return api(path, opts, false);
+  if (r.status === 401) { mostrarLogin(); }
+  return r;
+}
+
+const IDLE_MSG = (() => { try { const v = sessionStorage.getItem("idle"); sessionStorage.removeItem("idle"); return v ? "Tu sesión se cerró por inactividad. Ingresa de nuevo." : ""; } catch { return ""; } })();
+function mostrarLogin(msg) { $("lerr").textContent = msg || IDLE_MSG; $("login").style.display = "flex"; $("le").focus(); }
+
+$("lf").onsubmit = async (e) => {
+  e.preventDefault(); $("lb").disabled = true; $("lerr").textContent = "";
+  try {
+    const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: $("le").value, password: $("lp").value }) });
+    const j = await r.json();
+    if (!r.ok) { $("lerr").textContent = j.error || "No se pudo ingresar"; }
+    else { setSess(j); $("lp").value = ""; $("login").style.display = "none"; await iniciar(); }
+  } catch { $("lerr").textContent = "Sin conexión. Intenta de nuevo."; }
+  $("lb").disabled = false;
+};
+
+$("salir").onclick = () => { setSess(null); sessionStorage.removeItem("h"); location.reload(); };
+
+// ---------- cierre automático por inactividad ----------
+const IDLE_MS = 2 * 60 * 60 * 1000; // 2 horas sin actividad
+(function () {
+  const K = "ult_act";
+  const marcar = () => { try { localStorage.setItem(K, String(Date.now())); } catch {} };
+  const revisar = () => {
+    let t = 0; try { t = Number(localStorage.getItem(K)) || 0; } catch {}
+    if (!getSess()) return;
+    if (!t) return marcar();
+    if (Date.now() - t > IDLE_MS) {
+      setSess(null); try { sessionStorage.removeItem("h"); sessionStorage.setItem("idle", "1"); } catch {}
+      location.reload();
+    }
+  };
+  let ult = 0;
+  const actividad = () => { const n = Date.now(); if (n - ult > 15000) { ult = n; marcar(); } };
+  ["pointerdown", "keydown", "touchstart", "scroll", "click"].forEach(ev => addEventListener(ev, actividad, { passive: true, capture: true }));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) revisar(); });
+  setInterval(revisar, 60000);
+  revisar(); if (getSess() && !localStorage.getItem(K)) marcar();
+})();
+
+
+// ---------- encabezado: nombre, cupo diario, empresa (admin) ----------
+const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+function pintarCupo(usadas, limite) {
+  const el = $("cupo");
+  el.className = "pill";
+  if (limite == null) { el.textContent = "Consultas: sin límite"; bloquear(false); return; }
+  const quedan = Math.max(limite - usadas, 0);
+  el.textContent = `Consultas hoy: ${usadas}/${limite}`;
+  if (quedan === 0) el.classList.add("cero"); else if (quedan <= 3) el.classList.add("poco");
+  bloquear(quedan === 0, limite);
+}
+// Sin consultas disponibles: no se puede escribir ni enviar hasta mañana (el servidor también lo impide)
+function bloquear(si, limite) {
+  t.disabled = si; send.disabled = si;
+  document.querySelectorAll("#chips button").forEach(b => b.disabled = si);
+  t.placeholder = si ? `Llegaste a tu límite de ${limite} consultas de hoy. Se reinicia a las 00:00.` : "Cuéntame tu situación con el cliente...";
+  if (si && !document.getElementById("avisoLimite")) {
+    const d = document.createElement("div"); d.id = "avisoLimite"; d.className = "msg bot";
+    d.textContent = `⛔ Llegaste a tu límite de ${limite} consultas de hoy. Se reinicia a las 00:00. Si necesitas más, pídeselo a tu administrador.`;
+    chat.appendChild(d); chat.scrollTop = chat.scrollHeight;
+  }
+  if (!si) document.getElementById("avisoLimite")?.remove();
+}
+function pintarEncabezado() {
+  $("h_nombre").textContent = me?.nombre || "";
+  $("h_empresa").textContent = me?.empresa?.nombre ? "Empresa: " + me.empresa.nombre : "";
+  const m = $("h_mercado");
+  if (me?.mercado_hasta) { const a = Math.floor(me.mercado_hasta / 100), mes = me.mercado_hasta % 100; m.textContent = `Dato mercado hasta: ${MESES[mes - 1]} ${a}`; m.style.display = ""; }
+  else { m.textContent = "Dato mercado: sin cargar"; m.style.display = ""; }
+}
+
+async function cargarMe() {
+  const r = await api("/api/me" + (empresaSel ? "?empresa_id=" + encodeURIComponent(empresaSel) : ""));
+  if (!r.ok) return false;
+  me = await r.json();
+  pintarEncabezado();
+  pintarCupo(me.usadas, me.limite);
+  $("adminlink").style.display = me.rol === "admin" ? "" : "none";
+  if (me.rol === "admin" && me.empresas?.length) {
+    const sel = $("empresa");
+    sel.innerHTML = '<option value="">Empresa…</option>' + me.empresas.map(e => `<option value="${e.id}">${e.nombre}</option>`).join("");
+    sel.value = empresaSel || me.empresa?.id || "";
+    if (!empresaSel && sel.value) empresaSel = sel.value;
+    sel.style.display = "";
+  }
+  return true;
+}
+$("empresa").onchange = async (e) => { empresaSel = e.target.value; history = []; sessionStorage.removeItem("h"); chat.innerHTML = ""; await cargarMe(); saludo(); pintarCupo(me.usadas, me.limite); };
+
+// ---------- chat ----------
+function esc(s){ return s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+function render(role, text, logId) {
+  const d = document.createElement("div");
+  d.className = "msg " + (role === "user" ? "me" : "bot");
+  if (role === "user") { d.textContent = text; }
+  else {
+    // Convierte bloques "> mensaje" en cajas copiables y **negritas**
+    const lines = esc(text).split("\n");
+    let html = "", quote = [];
+    const flush = () => { if (quote.length) { html += `<blockquote>${quote.join("\n")}</blockquote><span class="copy">Copiar</span>`; quote = []; } };
+    for (const l of lines) {
+      if (l.startsWith("&gt;")) quote.push(l.replace(/^&gt;\s?/, ""));
+      else { flush(); html += l + "\n"; }
+    }
+    flush();
+    d.innerHTML = html.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    d.querySelectorAll(".copy").forEach(b => b.onclick = () => {
+      navigator.clipboard.writeText(b.previousElementSibling.innerText);
+      b.textContent = "Copiado ✓"; setTimeout(() => b.textContent = "Copiar", 1500);
+    });
+    if (logId) {
+      const fb = document.createElement("div"); fb.className = "fb";
+      fb.innerHTML = '<button title="Me sirvió">👍</button><button title="No me sirvió">👎</button>';
+      fb.querySelectorAll("button").forEach((b, i) => b.onclick = async () => {
+        fb.querySelectorAll("button").forEach(x => x.disabled = true);
+        await api("/api/feedback", { method: "POST", body: JSON.stringify({ log_id: logId, util: i === 0 }) });
+        b.style.background = "#dff3e3";
+      });
+      d.appendChild(fb);
+    }
+  }
+  chat.appendChild(d); chat.scrollTop = chat.scrollHeight;
+  return d;
+}
+
+async function ask(text) {
+  history.push({ role: "user", content: text });
+  render("user", text);
+  $("chips").style.display = "none";
+  send.disabled = true;
+  const wait = render("assistant", "Pensando…");
+  try {
+    const r = await api("/api/chat", { method: "POST", body: JSON.stringify({ messages: history, empresa_id: empresaSel || undefined }) });
+    const j = await r.json().catch(() => ({}));
+    wait.remove();
+    if (r.status === 401) { history.pop(); chat.lastChild.remove(); }
+    else if (!r.ok || j.error) {
+      render("assistant", "⚠️ " + (j.error || "Error del agente, intenta de nuevo")); history.pop();
+      if (r.status === 429 && j.limite != null) pintarCupo(j.usadas, j.limite);
+    } else {
+      history.push({ role: "assistant", content: j.reply }); render("assistant", j.reply, j.log_id);
+      if (j.limite != null) pintarCupo(j.usadas, j.limite);
+      if (history.length === 2) setTimeout(cargarTermo, 9000);
+    }
+  } catch { wait.remove(); render("assistant", "⚠️ Sin conexión. Intenta de nuevo."); history.pop(); }
+  sessionStorage.setItem("h", JSON.stringify(history));
+  if (!t.disabled) { send.disabled = false; t.focus(); }
+}
+
+$("f").onsubmit = e => {
+  e.preventDefault();
+  const v = t.value.trim(); if (!v || send.disabled) return;
+  t.value = ""; ask(v);
+};
+t.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("f").requestSubmit(); } };
+document.querySelectorAll("#chips button").forEach(b => b.onclick = () => {
+  if (b.dataset.fill) { t.value = b.dataset.fill; t.focus(); t.setSelectionRange(0, 0); } else ask(b.textContent);
+});
+$("reset").onclick = () => { history = []; sessionStorage.removeItem("h"); location.reload(); };
+
+function saludo() {
+  const nom = me?.nombre ? " " + me.nombre.split(" ")[0] : "";
+  render("assistant", `Hola${nom}, soy tu copiloto de ventas. Cuéntame qué pasa con tu cliente y te armo el mensaje y la mejor acción para avanzar.\n\n📌 Metas de hoy (lo de hoy es fruto de la disciplina de ayer):\n• 5 citas programadas\n• 3 citas efectivas\n• Test drives, reservas y solicitudes de crédito\n• Walk-in: atiéndelo bien y dale seguimiento en 24 h\n\n¿En qué palanca vas hoy?`);
+  $("chips").style.display = "";
+}
+
+// ---------- fichas comerciales ----------
+let fichaActual = null, modelosCargados = false;
+async function abrirFichas() {
+  $("fichas").style.display = "flex";
+  if (modelosCargados) return;
+  const r = await api("/api/fichas/modelos" + (empresaSel ? "?empresa_id=" + encodeURIComponent(empresaSel) : ""));
+  const j = await r.json().catch(() => ({}));
+  const sel = $("fichSel");
+  if (!r.ok || !j.modelos?.length) { sel.innerHTML = '<option value="">Aún no hay fichas de tus marcas</option>'; return; }
+  modelosCargados = true;
+  const opt = m => `<option value="${escH(m.marca + " " + m.modelo)}">${escH(m.marca + " " + m.modelo)} (${escH(m.segmento)})</option>`;
+  sel.innerHTML = '<option value="">Elige un modelo…</option>' +
+    '<optgroup label="Nuestros modelos">' + j.modelos.filter(m => m.propia).map(opt).join("") + '</optgroup>' +
+    '<optgroup label="Competencia (para preparar la conversación)">' + j.modelos.filter(m => !m.propia).map(opt).join("") + '</optgroup>';
+}
+async function generarFicha(q) {
+  const box = $("fichaCard"); $("fichAcc").style.display = "none"; fichaActual = null;
+  if (!q) { box.innerHTML = ""; return; }
+  box.innerHTML = '<p class="mut">Armando la ficha…</p>';
+  const r = await api("/api/ficha-comercial?modelo=" + encodeURIComponent(q) + (empresaSel ? "&empresa_id=" + encodeURIComponent(empresaSel) : ""));
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { box.innerHTML = `<p>${escH(j.error || "No se pudo generar la ficha")}</p>`; return; }
+  fichaActual = j;
+  const precio = j.precio?.lista?.length ? "desde $" + Math.round(Math.min(...j.precio.lista.map(x => x.precio))).toLocaleString("en-US")
+    : j.precio?.referencia ? "referencia $" + Math.round(j.precio.referencia.usd).toLocaleString("en-US") : "";
+  box.innerHTML = `<p class="mut">${escH(j.empresa)}${j.es_competencia ? " · FICHA DE LA COMPETENCIA" : ""}</p><h3>${escH(j.titulo)}</h3>
+    ${j.es_competencia ? (j.alternativa ? `<p><b>Nuestra alternativa:</b> ${escH(j.alternativa.modelo)}${j.alternativa.version ? " " + escH(j.alternativa.version) : ""}. Puntos a favor nuestro:</p>` : "<p>No hay un modelo nuestro comparable con ficha.</p>") : ""}<p class="mut">${escH([j.segmento, j.propulsion, precio].filter(Boolean).join(" · "))}</p>
+    <ul>${j.puntos.map(p => `<li>${escH(p.texto)}</li>`).join("")}</ul>
+    ${j.promociones.map(p => `<div class="promo">🎁 <b>${escH(p.titulo)}</b> — ${escH(p.detalle || "")}${p.condiciones ? "<br><small>" + escH(p.condiciones) + "</small>" : ""}<br><small>Vigente hasta ${escH(p.hasta)}</small></div>`).join("")}
+    <table><thead><tr><th>Versión</th><th>hp</th><th>Torque</th><th>Transmisión</th><th>Tracción</th></tr></thead><tbody>${j.versiones.map(v => `<tr><td>${escH(v.version)}</td><td>${v.hp ?? "—"}</td><td>${v.torque_nm ?? "—"}</td><td>${escH(v.transmision || "—")}</td><td>${escH(v.traccion || "—")}</td></tr>`).join("")}</tbody></table>
+    ${j.comparado_con?.length ? `<p class="mut">Comparado con: ${escH(j.comparado_con.join(", "))}</p>` : ""}
+    ${j.a_preparar?.length ? `<div class="aviso">🛡️ Prepárate: ${j.a_preparar.map(escH).join("<br>")}</div>` : ""}
+    ${j.avisos.map(a => `<div class="aviso">⚠️ ${escH(a)}</div>`).join("")}
+    <div class="pie">${escH(j.pie)}${j.fuente?.documento ? " Fuente: " + escH(j.fuente.documento) + (j.fuente.fecha ? " (" + escH(j.fuente.fecha) + ")" : "") + "." : ""}</div>`;
+  $("fichAcc").style.display = "flex";
+}
+$("fichBtn").onclick = abrirFichas;
+$("fichSel").onchange = (e) => generarFicha(e.target.value);
+$("fichCerrar").onclick = () => $("fichas").style.display = "none";
+$("fichas").onclick = (e) => { if (e.target.id === "fichas") $("fichas").style.display = "none"; };
+$("fichPrint").onclick = () => window.print();
+$("fichWa").onclick = async () => {
+  if (!fichaActual) return;
+  if (!fichaActual.whatsapp) { alert("No hay texto de WhatsApp para esta ficha."); return; }
+  try { await navigator.clipboard.writeText(fichaActual.whatsapp); $("fichWa").textContent = "¡Copiado!"; } catch { prompt("Copia este texto:", fichaActual.whatsapp); }
+  setTimeout(() => $("fichWa").textContent = "Copiar texto para WhatsApp", 1800);
+};
+$("fichAsk").onclick = () => { if (!fichaActual) return; $("fichas").style.display = "none"; ask(`Dame los argumentos de venta del ${fichaActual.titulo} frente a su competencia y cómo avanzar con el cliente.`); };
+
+// ---------- casillero ----------
+const kbc = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+const escH = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let casArchivos = [];
+function pintarBadge(n) {
+  const b = $("casN"); b.textContent = n; b.style.display = n > 0 ? "" : "none";
+  $("casAvisoT").textContent = n === 1 ? "📁 Tienes 1 archivo nuevo en tu casillero" : "📁 Tienes " + n + " archivos nuevos en tu casillero";
+  $("casAviso").style.display = n > 0 ? "flex" : "none";
+}
+async function cargarCasillero() {
+  try {
+    const r = await api("/api/casillero"); if (!r.ok) return;
+    const j = await r.json(); casArchivos = j.archivos; pintarBadge(j.nuevos); pintarCasillero();
+  } catch {}
+}
+function pintarCasillero() {
+  $("casLista").innerHTML = casArchivos.length ? casArchivos.map(a => `<div class="arch"><div class="info"><b>${escH(a.titulo)}</b>${a.nuevo ? '<span class="nuevo">Nuevo</span>' : ""}
+    <small>${escH(a.categoria)} · ${kbc(a.tamano)} · ${new Date(a.fecha).toLocaleDateString("es-EC")}</small>${a.descripcion ? `<small>${escH(a.descripcion)}</small>` : ""}</div>
+    <button data-id="${a.id}">Descargar</button></div>`).join("") : '<p class="mut">Tu casillero está vacío por ahora.</p>';
+  document.querySelectorAll("#casLista button").forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = "…";
+    try {
+      const r = await api("/api/casillero/" + b.dataset.id + "/descargar", { method: "POST" }); const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "No se pudo descargar");
+      const a = document.createElement("a"); a.href = j.url; a.download = j.nombre || ""; document.body.appendChild(a); a.click(); a.remove();
+      const f = casArchivos.find(x => x.id === b.dataset.id); if (f) f.nuevo = false;
+      pintarBadge(casArchivos.filter(x => x.nuevo).length); setTimeout(pintarCasillero, 400);
+    } catch (e) { alert(e.message); b.disabled = false; b.textContent = "Descargar"; }
+  });
+}
+$("casAvisoB").onclick = () => $("casBtn").click();
+$("casBtn").onclick = () => { $("casillero").style.display = "flex"; cargarCasillero(); };
+// se actualiza solo: cada 5 minutos y al volver a la pestaña
+setInterval(() => { if (getSess() && !document.hidden) cargarCasillero(); }, 5 * 60 * 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && getSess()) cargarCasillero(); });
+$("casCerrar").onclick = () => $("casillero").style.display = "none";
+$("casillero").onclick = (e) => { if (e.target.id === "casillero") $("casillero").style.display = "none"; };
+
+// ---------- termómetro de preguntas (solo tendencia; sin nota por mensaje) ----------
+const COLOR_NIVEL = { mejorar: "#e5584e", camino: "#f2b134", bien: "#8fcf7d", excelente: "#2e9d57" };
+let termo = null;
+async function cargarTermo() {
+  try {
+    const r = await api("/api/mi-termometro"); if (!r.ok) return;
+    termo = await r.json();
+    const b = $("termo");
+    if (!termo.activo) { b.innerHTML = `🌡️ Mis preguntas: ${termo.n}/3`; return; }
+    b.innerHTML = `🌡️ <span class="tk"><i style="width:${termo.valor}%"></i></span> ${escH(termo.nivel.texto)}`;
+  } catch {}
+}
+function pintarTermo() {
+  const t = termo, el = $("termoCuerpo");
+  if (!t) { el.innerHTML = '<p class="mut">Cargando…</p>'; return; }
+  if (!t.activo) {
+    el.innerHTML = `<p style="font-size:15px">Tu termómetro se activa con <b>3 consultas de casos</b> de clientes. Llevas <b>${t.n}</b>.</p>
+      <p class="mut">Tip: cuenta el caso completo en un solo mensaje (modelo, visitas, tiempo, pago y qué quieres lograr). Mira la Guía del vendedor en tu casillero.</p>`;
+    return;
+  }
+  const cambio = t.cambio == null ? "" : t.cambio > 0 ? `▲ subiste ${t.cambio} frente a tus 10 consultas anteriores` : t.cambio < 0 ? `▼ bajaste ${-t.cambio} frente a tus 10 consultas anteriores` : "= igual que tus 10 consultas anteriores";
+  const pts = t.serie.map((v, i) => `${t.serie.length > 1 ? (i * 100) / (t.serie.length - 1) : 50},${40 - (v * 36) / 100}`).join(" ");
+  el.innerHTML = `
+    <div class="gauge"><em style="left:${t.valor}%">${t.valor}</em><b style="left:${t.valor}%"></b></div>
+    <div class="gscale"><span>Por mejorar</span><span>En camino</span><span>Bien</span><span>Excelente</span></div>
+    <p style="font-size:16px;margin:12px 0 2px"><b style="color:${COLOR_NIVEL[t.nivel.clave]}">${escH(t.nivel.texto)}</b> · tus últimas ${t.n} consultas</p>
+    ${cambio ? `<p class="mut" style="margin:0">${cambio}</p>` : ""}
+    <svg viewBox="0 0 100 44" preserveAspectRatio="none" style="width:100%;height:56px;margin:10px 0 0;background:#f6f8fb;border-radius:8px"><polyline points="${pts}" fill="none" stroke="#0b5fff" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>
+    <div class="mut" style="text-align:center">Tendencia de tus últimas consultas</div>
+    <h3 style="font-size:15px;margin:14px 0 6px">Qué tan completos van tus datos</h3>
+    ${t.criterios.filter(c => c.pct != null).map(c => `<div class="crit"><span>${escH(c.n)}</span><span class="bar"><i style="width:${c.pct}%;background:${c.pct >= 70 ? "#2e9d57" : c.pct >= 40 ? "#f2b134" : "#e5584e"}"></i></span><span>${c.pct}%</span></div>`).join("")}
+    ${t.foco ? `<div class="foco">💡 <b>Para tu próxima consulta:</b> ${escH(t.foco.tip)}</div>` : '<div class="foco">🎯 ¡Vas muy completo! Sigue así.</div>'}`;
+}
+$("termo").onclick = () => { $("termoPanel").style.display = "flex"; pintarTermo(); cargarTermo().then(pintarTermo); };
+$("termoCerrar").onclick = () => $("termoPanel").style.display = "none";
+$("termoPanel").onclick = (e) => { if (e.target.id === "termoPanel") $("termoPanel").style.display = "none"; };
+setInterval(() => { if (getSess() && !document.hidden) cargarTermo(); }, 5 * 60 * 1000);
+
+async function iniciar() {
+  if (!(await cargarMe())) return;
+  chat.innerHTML = "";
+  if (history.length) { $("chips").style.display = "none"; history.forEach(m => render(m.role, m.content)); }
+  else saludo();
+  cargarCasillero(); cargarTermo();
+  pintarCupo(me.usadas, me.limite); // si ya no le quedan consultas, deja el aviso y bloquea el envío
+}
+
+// Arranque: si hay sesión guardada la usa; si no, pide ingreso
+(async () => { getSess() ? await iniciar() : mostrarLogin(); })();
+</script>
+</body>
+</html>

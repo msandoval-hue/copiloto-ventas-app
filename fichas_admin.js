@@ -63,4 +63,37 @@ export function registrarFichasAdmin(app, { admin, auth, invalidarFichas }) {
   app.post("/api/admin/fichas/refrescar", ...A, (_req, res) => {
     try { invalidarFichas?.(); res.json({ ok: true }); } catch (e) { falla(res, e, "No se pudo refrescar"); }
   });
+
+  // Parámetros de costo de uso (precios de combustible y energía)
+  const CLAVES = ["gasolina", "super", "diesel", "kwh", "km_anio", "anios_horizonte"];
+  app.get("/api/admin/costo/parametros", ...A, async (_req, res) => {
+    try {
+      const { data, error } = await admin.from("parametros_costo").select("clave,valor,actualizado");
+      if (error) throw error;
+      res.json({ parametros: Object.fromEntries((data || []).map((r) => [r.clave, { valor: r.valor === null ? null : Number(r.valor), actualizado: r.actualizado }])) });
+    } catch (e) { falla(res, e, "No se pudieron cargar los parámetros (¿ejecutaste la migración 10?)"); }
+  });
+  app.post("/api/admin/costo/parametros", ...A, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const filas = [];
+      const ahora = new Date().toISOString();
+      const { data: act } = await admin.from("parametros_costo").select("clave,valor");
+      const actuales = Object.fromEntries((act || []).map((r) => [r.clave, r.valor]));
+      for (const k of CLAVES) {
+        if (b[k] === undefined || b[k] === "") continue;
+        const v = Number(b[k]);
+        if (!Number.isFinite(v) || v <= 0 || v > 1e6) return res.status(400).json({ error: `Valor inválido en ${k}` });
+        filas.push({ clave: k, valor: v, actualizado: ahora });
+        // La primera vez que se guarda un precio queda como precio de calibración de la curva
+        if (["gasolina", "super", "diesel", "kwh"].includes(k) && (actuales[k + "_calib"] == null || b.recalibrar)) filas.push({ clave: k + "_calib", valor: v, actualizado: ahora });
+      }
+      if (!filas.length) return res.status(400).json({ error: "No enviaste valores" });
+      if (filas.some((f) => ["gasolina", "super", "diesel", "kwh"].includes(f.clave))) filas.push({ clave: "fecha_precios", valor: 1, actualizado: ahora });
+      const { error } = await admin.from("parametros_costo").upsert(filas, { onConflict: "clave" });
+      if (error) throw error;
+      invalidarFichas?.();
+      res.json({ ok: true });
+    } catch (e) { falla(res, e, "No se pudieron guardar los parámetros"); }
+  });
 }

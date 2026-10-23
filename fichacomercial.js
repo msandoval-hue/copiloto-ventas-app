@@ -10,12 +10,12 @@ export function modelosDeLaEmpresa(fichas, marcasPropias) {
   const propias = new Set((marcasPropias || []).map(norm));
   const m = new Map();
   for (const f of fichas) {
-    if (!esPropia(propias, f.marca)) continue;
     const k = `${f.marca}|${f.modelo}`;
-    if (!m.has(k)) m.set(k, { marca: f.marca, modelo: f.modelo, segmento: f.segmento, versiones: 0 });
+    if (!m.has(k)) m.set(k, { marca: f.marca, modelo: f.modelo, segmento: f.segmento, versiones: 0, propia: esPropia(propias, f.marca) });
     m.get(k).versiones++;
   }
-  return [...m.values()].sort((a, b) => a.marca.localeCompare(b.marca) || a.modelo.localeCompare(b.modelo));
+  // Primero los de la empresa, luego la competencia
+  return [...m.values()].sort((a, b) => Number(b.propia) - Number(a.propia) || a.marca.localeCompare(b.marca) || a.modelo.localeCompare(b.modelo));
 }
 
 const coincide = (p, f) => {
@@ -35,8 +35,37 @@ export async function fichaComercial(consulta, ctx) {
   const grupo = AGRUPAR(r)[0];
   const base = mejorVersion(grupo);
   if (!esPropia(propias, base.marca)) {
+    // Ficha de la competencia: sus datos y cómo la enfrentamos con lo nuestro
     const alt = await ejecutarFichas(TOOL_RIVALES.name, { modelo: consulta, limite: 1 }, { ...ctx, admin: null });
-    return { error: `${base.marca} ${base.modelo} no es de las marcas de ${empresaNombre}. Esta ficha es solo para tus productos.`, alternativas: (alt.alternativas_de_la_empresa || []).map((x) => `${x.marca} ${x.modelo}`) };
+    // De las alternativas de la empresa, se elige la que mejor argumenta (más ventajas reales, sin contar empates)
+    let nuestra = null, cmpR = null, mejor = -1;
+    for (const x of alt.alternativas_de_la_empresa || []) {
+      const f = fichas.find((q) => q.marca === x.marca && q.modelo === x.modelo && (q.version || "") === (x.version || ""));
+      if (!f) continue;
+      const c = comparar([f, base], precios, propias);
+      const v = c.ventajas_de_la_empresa.filter((t) => !t.includes("empata")).length - 0.5 * c.puntos_donde_el_rival_supera.length;
+      if (v > mejor) { mejor = v; nuestra = f; cmpR = c; }
+    }
+    const pr = precioDe(base, precios);
+    const puntos = (cmpR?.ventajas_de_la_empresa || []).slice(0, 5).map((t) => ({ tipo: "vs_rivales", texto: t }));
+    const nombreN = nuestra ? `${nuestra.marca} ${nuestra.modelo}` : null;
+    const cr = estimar(base, params);
+    const versionesR = grupo.map((f) => ({ version: f.version || "Única", hp: num(f.hp), torque_nm: num(f.torque_nm), transmision: f.transmision || null, traccion: f.traccion || null, airbags: num(f.airbags) }));
+    const wa = nuestra ? [`Si estás pensando en la *${base.marca} ${base.modelo}*, mira también la *${nombreN}*:`, ...puntos.slice(0, 4).map((p) => `✅ ${p.texto}`), "¿Te animas a compararlas en una prueba de manejo?"].join("\n") : null;
+    const av = [];
+    if (!nuestra) av.push("No tengo un modelo de la empresa comparable cargado con ficha.");
+    if (base.confianza !== "Alta") av.push(`Datos de la competencia con confianza ${base.confianza}: preséntalos como por confirmar.`);
+    return {
+      es_competencia: true, titulo: `${base.marca} ${base.modelo}`, empresa: empresaNombre, segmento: base.segmento, propulsion: base.propulsion || null,
+      precio: { lista: [], referencia: pr ? { usd: pr.usd, fuente: pr.fuente } : null },
+      puntos, versiones: versionesR, promociones: [],
+      alternativa: nuestra ? { modelo: nombreN, version: nuestra.version || null } : null,
+      a_preparar: cmpR?.puntos_donde_el_rival_supera || [], costo_uso: cr.sin_estimado ? null : { usd_100km: Math.round(cr.usd100 * 10) / 10, metodo: cr.metodo, etiqueta: ETIQUETA },
+      comparado_con: nombreN ? [nombreN] : [],
+      fuente: { documento: base.fuente || null, fecha: base.fecha_doc || null, confianza: base.confianza },
+      whatsapp: wa, avisos: av,
+      pie: "Ficha de un modelo de la competencia para preparar la conversación. Datos del fabricante; no los uses para hablar mal del rival. Confirma con tu jefatura antes de comprometerte.",
+    };
   }
 
   // Rivales: los 3 más cercanos por segmento/precio/tecnología (misma lógica que rivales_de)

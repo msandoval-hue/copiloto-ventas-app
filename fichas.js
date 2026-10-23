@@ -94,7 +94,7 @@ function vista(f, precios, propias, completa = true) {
   const p = precioDe(f, precios);
   if (p) o.precio_referencia = p;
   for (const [k, lbl] of CAMPOS) {
-    if (!completa && !["potencia_hp", "torque_nm", "transmision", "traccion", "autonomia_km"].includes(lbl) && lbl !== "propulsión") continue;
+    if (!completa && !["potencia_hp", "torque_nm", "transmision", "traccion", "autonomia_km", "despeje_mm", "pasajeros", "maletero_l", "carga_util_kg", "airbags", "garantia"].includes(lbl) && lbl !== "propulsión") continue;
     if (f[k] !== null && f[k] !== undefined && f[k] !== "") o[lbl] = typeof f[k] === "string" && /^\d+(\.\d+)?$/.test(f[k]) ? Number(f[k]) : f[k];
   }
   if (completa && f.notas) o.notas = f.notas;
@@ -179,6 +179,14 @@ export const TOOL_FICHAS = {
       segmento: { type: "string", enum: ["SUV", "Auto", "Pickup", "Van", "Camión", "Bus"], description: "Filtra por segmento (camioneta = Pickup; sedán/hatchback = Auto)." },
       propulsion: { type: "string", description: "Filtro parcial: eléctrico, híbrido, PHEV, diésel, gasolina." },
       marca: { type: "string", description: "Filtra por marca (parcial)." },
+      pasajeros_min: { type: "integer", description: "Mínimo de pasajeros (ej. 7 para familias grandes)." },
+      precio_max: { type: "number", description: "Precio máximo en USD (referencia de ficha o promedio de mercado). Excluye modelos sin precio de referencia." },
+      precio_min: { type: "number", description: "Precio mínimo en USD." },
+      traccion: { type: "string", description: "Filtro parcial de tracción: 4x4, 4x2, AWD, delantera." },
+      despeje_min_mm: { type: "integer", description: "Despeje mínimo al suelo en mm (ej. 200 para caminos malos)." },
+      maletero_min_l: { type: "integer", description: "Maletero mínimo en litros." },
+      carga_min_kg: { type: "integer", description: "Carga útil mínima en kg (trabajo)." },
+      ordenar: { type: "string", enum: ["potencia", "precio", "despeje", "maletero", "carga", "autonomia"], description: "Orden de la lista (por defecto: marcas de la empresa primero, luego potencia). Precio es ascendente; el resto descendente." },
       solo_marcas_empresa: { type: "boolean", description: "true = solo modelos de las marcas que representa la empresa del asesor." },
       detalle: { type: "string", enum: ["completo", "resumen"], description: "completo (por defecto) para pocos modelos; resumen para listas largas." },
       limite: { type: "integer", description: "Máximo de fichas (1 a 15). Por defecto 6." },
@@ -258,6 +266,19 @@ export async function ejecutarFichas(nombre, a, { fichas, filasMercado, marcasPr
     if (a.marca) lista = lista.filter((f) => norm(f.marca).includes(norm(a.marca)));
     if (a.propulsion) lista = lista.filter((f) => norm([f.propulsion, f.extra?.emisiones].join(" ")).includes(norm(a.propulsion)));
     if (a.solo_marcas_empresa) lista = lista.filter((f) => esPropia(propias, f.marca));
+    const sinPrecio = [];
+    if (a.pasajeros_min) lista = lista.filter((f) => n(f.pasajeros) >= a.pasajeros_min);
+    if (a.traccion) lista = lista.filter((f) => norm(f.traccion).includes(norm(a.traccion)));
+    if (a.despeje_min_mm) lista = lista.filter((f) => n(f.despeje_mm) >= a.despeje_min_mm);
+    if (a.maletero_min_l) lista = lista.filter((f) => n(f.maletero_l) >= a.maletero_min_l);
+    if (a.carga_min_kg) lista = lista.filter((f) => n(f.carga_kg) >= a.carga_min_kg);
+    if (a.precio_max || a.precio_min) {
+      lista = lista.filter((f) => {
+        const p = precioDe(f, precios)?.usd;
+        if (!p) { sinPrecio.push(f); return false; }
+        return (!a.precio_max || p <= a.precio_max * 1.0) && (!a.precio_min || p >= a.precio_min);
+      });
+    }
     if (a.consulta) {
       const r = resolver(lista, a.consulta);
       if (!r.length) {
@@ -268,8 +289,26 @@ export async function ejecutarFichas(nombre, a, { fichas, filasMercado, marcasPr
     }
     const lim = Math.min(Math.max(a.limite || 6, 1), 15);
     const total = lista.length;
-    lista = [...lista].sort((x, y) => Number(esPropia(propias, y.marca)) - Number(esPropia(propias, x.marca)) || (n(y.hp) ?? 0) - (n(x.hp) ?? 0)).slice(0, lim);
-    return { encontradas: total, mostradas: lista.length, fichas: lista.map((f) => vista(f, precios, propias, a.detalle !== "resumen")), regla: REGLA };
+    const ORD = { potencia: (f) => n(f.hp) ?? 0, despeje: (f) => n(f.despeje_mm) ?? 0, maletero: (f) => n(f.maletero_l) ?? 0, carga: (f) => n(f.carga_kg) ?? 0, autonomia: (f) => n(f.autonomia_km) ?? 0 };
+    if (a.ordenar === "precio") lista = [...lista].sort((x, y) => (precioDe(x, precios)?.usd ?? 1e9) - (precioDe(y, precios)?.usd ?? 1e9));
+    else if (ORD[a.ordenar]) lista = [...lista].sort((x, y) => ORD[a.ordenar](y) - ORD[a.ordenar](x));
+    else lista = [...lista].sort((x, y) => Number(esPropia(propias, y.marca)) - Number(esPropia(propias, x.marca)) || (n(y.hp) ?? 0) - (n(x.hp) ?? 0));
+    // En listados (sin modelo concreto) se muestra una sola versión por modelo
+    if (!a.consulta) { const vistos = new Set(); lista = lista.filter((f) => { const k = norm(f.marca + " " + f.modelo); if (vistos.has(k)) return false; vistos.add(k); return true; }); }
+    // Con orden explícito se garantiza que hasta 2 opciones de la empresa aparezcan aunque no encabecen la lista
+    let corte = lista.slice(0, lim);
+    if (a.ordenar && !a.solo_marcas_empresa) {
+      const faltan = lista.filter((f) => esPropia(propias, f.marca) && !corte.includes(f)).slice(0, Math.max(0, 2 - corte.filter((f) => esPropia(propias, f.marca)).length));
+      for (const f of faltan) {
+        const i = [...corte.keys()].reverse().find((k) => !esPropia(propias, corte[k].marca));
+        if (i !== undefined) corte[i] = f;
+      }
+    }
+    lista = corte;
+    const out = { encontradas: total, mostradas: lista.length, fichas: lista.map((f) => vista(f, precios, propias, a.detalle !== "resumen")), regla: REGLA };
+    if (sinPrecio.length) out.sin_precio_de_referencia_omitidas = sinPrecio.length;
+    if (!total) out.aviso = "Ningún modelo cumple todos los filtros: sugiere al asesor relajar el de menor prioridad (precio, tracción o despeje) y dilo con honestidad.";
+    return out;
   }
 
   if (nombre === TOOL_COMPARAR.name) {
@@ -359,3 +398,5 @@ export function textoFichas(fichas, marcasPropias = []) {
     (nuestras.length ? `Modelos de nuestra empresa con ficha: ${nuestras.join(", ")}.` : "No hay fichas de modelos de nuestra empresa cargadas todavía.")
   );
 }
+
+export { esPropia, AGRUPAR, mejorVersion, norm, precioDe, vista, METRICAS };

@@ -51,6 +51,18 @@
   .arch .info { flex:1; min-width:0; } .arch b { font-size:14px; } .arch small { display:block; color:#6b7787; font-size:12px; margin-top:2px; }
   .arch button { background:#0b5fff; color:#fff; border:0; border-radius:8px; padding:8px 12px; cursor:pointer; font:inherit; font-size:13px; white-space:nowrap; }
   .nuevo { background:#ff5a4f; color:#fff; border-radius:8px; padding:0 6px; font-size:11px; margin-left:6px; }
+  /* Fichas comerciales */
+  #fichas { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:flex-end; justify-content:center; z-index:9; }
+  #fichas .box { background:#fff; width:100%; max-width:640px; max-height:90vh; overflow:auto; border-radius:14px 14px 0 0; padding:16px; }
+  #fichas h2 { margin:0 0 4px; font-size:18px; } #fichas .mut { color:#6b7787; font-size:13px; }
+  #fichas select, #fichas .acc button { font:inherit; padding:9px 12px; border-radius:8px; border:1px solid #cfd6df; }
+  #fichas .acc { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+  #fichas .acc button { background:#0b5fff; color:#fff; border:0; cursor:pointer; } #fichas .acc button.sec { background:#e9eef5; color:#222; }
+  .fc h3 { margin:2px 0 0; font-size:20px; } .fc ul { padding-left:18px; } .fc li { margin:6px 0; }
+  .fc .promo { background:#fff4e0; border-radius:8px; padding:8px 10px; margin:8px 0; font-size:14px; }
+  .fc .aviso { color:#8a5200; font-size:12px; margin:4px 0; } .fc .pie { color:#6b7787; font-size:11px; margin-top:12px; }
+  .fc table { border-collapse:collapse; width:100%; font-size:13px; } .fc td, .fc th { border-bottom:1px solid #e1e6ec; padding:4px 6px; text-align:left; }
+  @media print { body * { visibility:hidden; } #fichaCard, #fichaCard * { visibility:visible; } #fichaCard { position:absolute; left:0; top:0; width:100%; } }
   /* Termómetro de preguntas */
   #termo { cursor:pointer; display:inline-flex; align-items:center; gap:6px; border:0; color:#fff; font:inherit; font-size:12px; }
   #termo .tk { width:54px; height:8px; border-radius:4px; background:rgba(255,255,255,.3); overflow:hidden; }
@@ -82,6 +94,7 @@
     <div class="right">
       <select id="empresa" style="display:none"></select>
       <a id="adminlink" href="/admin.html" style="display:none">⚙️ Admin</a>
+      <button id="fichBtn">📄 Fichas</button>
       <button id="casBtn">📁 Casillero<span id="casN" class="badge" style="display:none"></span></button>
       <button id="reset">Nueva consulta</button>
       <button id="salir">Salir</button>
@@ -102,6 +115,9 @@
   <button>Un cliente no me responde, ¿qué le escribo?</button>
   <button>Cliente que no vuelve al concesionario</button>
   <button>Retomar un cliente de hace más de 30 días</button>
+  <button data-fill="El cliente compara el [modelo nuestro] con el [modelo de la competencia]. ¿Cómo lo ayudo a decidir?">⚖️ El cliente compara dos modelos</button>
+  <button data-fill="El cliente quiere un [modelo de otra marca]. ¿Qué le ofrezco de nuestra marca?">🎯 Qué le ofrezco a quien quiere otro modelo</button>
+  <button data-fill="Recomiéndame un modelo para este cliente: [pasajeros], [presupuesto], [uso: ciudad/carretera/trabajo], [km al año].">🧭 Recomiéndame un modelo para este cliente</button>
 </div>
 <form id="f">
   <textarea id="t" rows="1" placeholder="Cuéntame tu situación con el cliente..."></textarea>
@@ -114,6 +130,13 @@
   <button id="casCerrar" style="width:100%;margin-top:6px;padding:10px;border:0;border-radius:8px;background:#e9eef5;cursor:pointer;font:inherit">Cerrar</button>
 </div></div>
 
+<div id="fichas"><div class="box">
+  <h2>📄 Ficha comercial</h2><p class="mut">Elige un modelo de tu empresa: arma una página con los puntos fuertes, la promoción vigente y un texto listo para WhatsApp.</p>
+  <select id="fichSel" style="width:100%"><option value="">Cargando modelos…</option></select>
+  <div id="fichaCard" class="fc"></div>
+  <div class="acc" id="fichAcc" style="display:none"><button id="fichWa">Copiar texto para WhatsApp</button><button id="fichPrint" class="sec">Imprimir / PDF</button><button id="fichAsk" class="sec">Armar argumentos con el copiloto</button></div>
+  <button id="fichCerrar" style="width:100%;margin-top:6px;padding:10px;border:0;border-radius:8px;background:#e9eef5;cursor:pointer;font:inherit">Cerrar</button>
+</div></div>
 <div id="termoPanel"><div class="box">
   <h2>🌡️ Termómetro de mis preguntas</h2><p class="mut">Mide qué tan completo le cuentas cada caso al copiloto. Mientras más completo, mejor y más rápida es la respuesta.</p>
   <div id="termoCuerpo"></div>
@@ -317,7 +340,9 @@ $("f").onsubmit = e => {
   t.value = ""; ask(v);
 };
 t.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("f").requestSubmit(); } };
-document.querySelectorAll("#chips button").forEach(b => b.onclick = () => ask(b.textContent));
+document.querySelectorAll("#chips button").forEach(b => b.onclick = () => {
+  if (b.dataset.fill) { t.value = b.dataset.fill; t.focus(); t.setSelectionRange(0, 0); } else ask(b.textContent);
+});
 $("reset").onclick = () => { history = []; sessionStorage.removeItem("h"); location.reload(); };
 
 function saludo() {
@@ -325,6 +350,49 @@ function saludo() {
   render("assistant", `Hola${nom}, soy tu copiloto de ventas. Cuéntame qué pasa con tu cliente y te armo el mensaje y la mejor acción para avanzar.\n\n📌 Metas de hoy (lo de hoy es fruto de la disciplina de ayer):\n• 5 citas programadas\n• 3 citas efectivas\n• Test drives, reservas y solicitudes de crédito\n• Walk-in: atiéndelo bien y dale seguimiento en 24 h\n\n¿En qué palanca vas hoy?`);
   $("chips").style.display = "";
 }
+
+// ---------- fichas comerciales ----------
+let fichaActual = null, modelosCargados = false;
+async function abrirFichas() {
+  $("fichas").style.display = "flex";
+  if (modelosCargados) return;
+  const r = await api("/api/fichas/modelos" + (empresaSel ? "?empresa_id=" + encodeURIComponent(empresaSel) : ""));
+  const j = await r.json().catch(() => ({}));
+  const sel = $("fichSel");
+  if (!r.ok || !j.modelos?.length) { sel.innerHTML = '<option value="">Aún no hay fichas de tus marcas</option>'; return; }
+  modelosCargados = true;
+  sel.innerHTML = '<option value="">Elige un modelo…</option>' + j.modelos.map(m => `<option value="${escH(m.marca + " " + m.modelo)}">${escH(m.marca + " " + m.modelo)} (${escH(m.segmento)})</option>`).join("");
+}
+async function generarFicha(q) {
+  const box = $("fichaCard"); $("fichAcc").style.display = "none"; fichaActual = null;
+  if (!q) { box.innerHTML = ""; return; }
+  box.innerHTML = '<p class="mut">Armando la ficha…</p>';
+  const r = await api("/api/ficha-comercial?modelo=" + encodeURIComponent(q) + (empresaSel ? "&empresa_id=" + encodeURIComponent(empresaSel) : ""));
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { box.innerHTML = `<p>${escH(j.error || "No se pudo generar la ficha")}</p>`; return; }
+  fichaActual = j;
+  const precio = j.precio?.lista?.length ? "desde $" + Math.round(Math.min(...j.precio.lista.map(x => x.precio))).toLocaleString("en-US")
+    : j.precio?.referencia ? "referencia $" + Math.round(j.precio.referencia.usd).toLocaleString("en-US") : "";
+  box.innerHTML = `<p class="mut">${escH(j.empresa)}</p><h3>${escH(j.titulo)}</h3><p class="mut">${escH([j.segmento, j.propulsion, precio].filter(Boolean).join(" · "))}</p>
+    <ul>${j.puntos.map(p => `<li>${escH(p.texto)}</li>`).join("")}</ul>
+    ${j.promociones.map(p => `<div class="promo">🎁 <b>${escH(p.titulo)}</b> — ${escH(p.detalle || "")}${p.condiciones ? "<br><small>" + escH(p.condiciones) + "</small>" : ""}<br><small>Vigente hasta ${escH(p.hasta)}</small></div>`).join("")}
+    <table><thead><tr><th>Versión</th><th>hp</th><th>Torque</th><th>Transmisión</th><th>Tracción</th></tr></thead><tbody>${j.versiones.map(v => `<tr><td>${escH(v.version)}</td><td>${v.hp ?? "—"}</td><td>${v.torque_nm ?? "—"}</td><td>${escH(v.transmision || "—")}</td><td>${escH(v.traccion || "—")}</td></tr>`).join("")}</tbody></table>
+    ${j.comparado_con?.length ? `<p class="mut">Comparado con: ${escH(j.comparado_con.join(", "))}</p>` : ""}
+    ${j.avisos.map(a => `<div class="aviso">⚠️ ${escH(a)}</div>`).join("")}
+    <div class="pie">${escH(j.pie)}${j.fuente?.documento ? " Fuente: " + escH(j.fuente.documento) + (j.fuente.fecha ? " (" + escH(j.fuente.fecha) + ")" : "") + "." : ""}</div>`;
+  $("fichAcc").style.display = "flex";
+}
+$("fichBtn").onclick = abrirFichas;
+$("fichSel").onchange = (e) => generarFicha(e.target.value);
+$("fichCerrar").onclick = () => $("fichas").style.display = "none";
+$("fichas").onclick = (e) => { if (e.target.id === "fichas") $("fichas").style.display = "none"; };
+$("fichPrint").onclick = () => window.print();
+$("fichWa").onclick = async () => {
+  if (!fichaActual) return;
+  try { await navigator.clipboard.writeText(fichaActual.whatsapp); $("fichWa").textContent = "¡Copiado!"; } catch { prompt("Copia este texto:", fichaActual.whatsapp); }
+  setTimeout(() => $("fichWa").textContent = "Copiar texto para WhatsApp", 1800);
+};
+$("fichAsk").onclick = () => { if (!fichaActual) return; $("fichas").style.display = "none"; ask(`Dame los argumentos de venta del ${fichaActual.titulo} frente a su competencia y cómo avanzar con el cliente.`); };
 
 // ---------- casillero ----------
 const kbc = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";

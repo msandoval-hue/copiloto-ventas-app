@@ -361,7 +361,10 @@ async function abrirFichas() {
   const sel = $("fichSel");
   if (!r.ok || !j.modelos?.length) { sel.innerHTML = '<option value="">Aún no hay fichas de tus marcas</option>'; return; }
   modelosCargados = true;
-  sel.innerHTML = '<option value="">Elige un modelo…</option>' + j.modelos.map(m => `<option value="${escH(m.marca + " " + m.modelo)}">${escH(m.marca + " " + m.modelo)} (${escH(m.segmento)})</option>`).join("");
+  const opt = m => `<option value="${escH(m.marca + " " + m.modelo)}">${escH(m.marca + " " + m.modelo)} (${escH(m.segmento)})</option>`;
+  sel.innerHTML = '<option value="">Elige un modelo…</option>' +
+    '<optgroup label="Nuestros modelos">' + j.modelos.filter(m => m.propia).map(opt).join("") + '</optgroup>' +
+    '<optgroup label="Competencia (para preparar la conversación)">' + j.modelos.filter(m => !m.propia).map(opt).join("") + '</optgroup>';
 }
 async function generarFicha(q) {
   const box = $("fichaCard"); $("fichAcc").style.display = "none"; fichaActual = null;
@@ -373,11 +376,13 @@ async function generarFicha(q) {
   fichaActual = j;
   const precio = j.precio?.lista?.length ? "desde $" + Math.round(Math.min(...j.precio.lista.map(x => x.precio))).toLocaleString("en-US")
     : j.precio?.referencia ? "referencia $" + Math.round(j.precio.referencia.usd).toLocaleString("en-US") : "";
-  box.innerHTML = `<p class="mut">${escH(j.empresa)}</p><h3>${escH(j.titulo)}</h3><p class="mut">${escH([j.segmento, j.propulsion, precio].filter(Boolean).join(" · "))}</p>
+  box.innerHTML = `<p class="mut">${escH(j.empresa)}${j.es_competencia ? " · FICHA DE LA COMPETENCIA" : ""}</p><h3>${escH(j.titulo)}</h3>
+    ${j.es_competencia ? (j.alternativa ? `<p><b>Nuestra alternativa:</b> ${escH(j.alternativa.modelo)}${j.alternativa.version ? " " + escH(j.alternativa.version) : ""}. Puntos a favor nuestro:</p>` : "<p>No hay un modelo nuestro comparable con ficha.</p>") : ""}<p class="mut">${escH([j.segmento, j.propulsion, precio].filter(Boolean).join(" · "))}</p>
     <ul>${j.puntos.map(p => `<li>${escH(p.texto)}</li>`).join("")}</ul>
     ${j.promociones.map(p => `<div class="promo">🎁 <b>${escH(p.titulo)}</b> — ${escH(p.detalle || "")}${p.condiciones ? "<br><small>" + escH(p.condiciones) + "</small>" : ""}<br><small>Vigente hasta ${escH(p.hasta)}</small></div>`).join("")}
     <table><thead><tr><th>Versión</th><th>hp</th><th>Torque</th><th>Transmisión</th><th>Tracción</th></tr></thead><tbody>${j.versiones.map(v => `<tr><td>${escH(v.version)}</td><td>${v.hp ?? "—"}</td><td>${v.torque_nm ?? "—"}</td><td>${escH(v.transmision || "—")}</td><td>${escH(v.traccion || "—")}</td></tr>`).join("")}</tbody></table>
     ${j.comparado_con?.length ? `<p class="mut">Comparado con: ${escH(j.comparado_con.join(", "))}</p>` : ""}
+    ${j.a_preparar?.length ? `<div class="aviso">🛡️ Prepárate: ${j.a_preparar.map(escH).join("<br>")}</div>` : ""}
     ${j.avisos.map(a => `<div class="aviso">⚠️ ${escH(a)}</div>`).join("")}
     <div class="pie">${escH(j.pie)}${j.fuente?.documento ? " Fuente: " + escH(j.fuente.documento) + (j.fuente.fecha ? " (" + escH(j.fuente.fecha) + ")" : "") + "." : ""}</div>`;
   $("fichAcc").style.display = "flex";
@@ -389,6 +394,7 @@ $("fichas").onclick = (e) => { if (e.target.id === "fichas") $("fichas").style.d
 $("fichPrint").onclick = () => window.print();
 $("fichWa").onclick = async () => {
   if (!fichaActual) return;
+  if (!fichaActual.whatsapp) { alert("No hay texto de WhatsApp para esta ficha."); return; }
   try { await navigator.clipboard.writeText(fichaActual.whatsapp); $("fichWa").textContent = "¡Copiado!"; } catch { prompt("Copia este texto:", fichaActual.whatsapp); }
   setTimeout(() => $("fichWa").textContent = "Copiar texto para WhatsApp", 1800);
 };

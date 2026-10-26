@@ -7,11 +7,12 @@ const num = (v) => (v === null || v === undefined || v === "" ? null : Number(v)
 const G = [[1000, 6.0], [1500, 8.0], [2000, 9.2], [3500, 11.0], [5000, 13.0]]; // gasolina: cc -> $/100 km
 const DZ = [[1500, 5.8], [2000, 6.5], [2800, 7.0], [4000, 9.0]]; // diésel (no camión)
 const F_MILD = 0.9, F_HIBRIDO = 0.43, EV_BASE = 1.5, TURBO = 1.15, EFIC_CARGA = 0.9;
-// Camiones y buses: km por galón de diésel referencial por clase de PBV (por calibrar con consumo real).
-const CLASES_CAMION = [
-  [5000, "liviano (hasta 5 t PBV)", 14], [12000, "mediano (5 a 12 t)", 9],
-  [20000, "pesado (12 a 20 t)", 6.5], [Infinity, "tracto/extrapesado (más de 20 t)", 4.5],
-];
+// Camiones y buses: rendimiento CON CARGA (km/L) según PBV, curva continua de uso mixto.
+// Calibrado con 3 datos reales (con carga): Sinotruk 6 t de carga (PBV 9.000 kg) = 15 km/gal; camión de 13 t de carga (PBV ~18.000 kg) = 11 km/gal;
+// tracto 6x4 de 48 t (conjunto ~58.000 kg) = 9 km/gal. Los puntos livianos (menos de 7.000 kg) siguen siendo referencia por validar.
+const CURVA_CAMION = [[2800, 10.5], [4600, 7.2], [7000, 4.8], [9000, 3.96], [12000, 3.5], [18000, 2.9], [26000, 2.7], [40000, 2.5], [58000, 2.38]];
+const USO = { urbano: 1.2, mixto: 1, carretera: 0.88 };
+const L_POR_GAL = 3.785;
 
 const interp = (x, pts) => {
   if (x <= pts[0][0]) return pts[0][1];
@@ -46,7 +47,7 @@ const factor = (params, tipo) => {
 };
 
 // Devuelve { usd100, metodo, nota } o { sin_estimado: motivo }
-export function estimar(f, params) {
+export function estimar(f, params, opts = {}) {
   const prop = norm(f.propulsion);
   const txt = norm([f.propulsion, f.version, f.notas].join(" "));
   const ev = prop.includes("ELECTR") && !/HIBRID|HEV|PHEV/.test(prop);
@@ -64,15 +65,19 @@ export function estimar(f, params) {
   }
 
   if (["CAMION", "BUS"].includes(seg)) {
-    const pbv = num(f.pbv_kg) ?? (num(f.carga_kg) && num(f.peso_vacio_kg) ? num(f.carga_kg) + num(f.peso_vacio_kg) : null);
-    if (!pbv) return { sin_estimado: "no hay PBV en la ficha para clasificar el camión" };
-    const [, clase, kmgal] = CLASES_CAMION.find(([lim]) => pbv <= lim);
+    let pbv = num(f.pbv_kg) ?? (num(f.carga_kg) && num(f.peso_vacio_kg) ? num(f.carga_kg) + num(f.peso_vacio_kg) : null);
+    // Cabezales/tractos: el PBV de la ficha puede ser solo el del camión; se usa el peso del conjunto (capacidad del nombre + ~10 t del cabezal)
+    const ton = String(f.version || f.modelo).match(/(\d{2,3})\s*ton/i);
+    if (/cabezal|tracto/i.test(`${f.version} ${f.modelo}`) && ton) pbv = Math.max(pbv ?? 0, Number(ton[1]) * 1000 + 10000);
+    if (!pbv) return { sin_estimado: "la ficha no trae PBV ni carga y peso para estimar el consumo" };
     const dz = P(params, "diesel");
     if (!dz) return { sin_estimado: "falta el precio del diésel en parámetros" };
-    const usd100 = (100 / kmgal) * dz;
+    const uso = USO[opts.uso] ? opts.uso : "mixto";
+    const kml = interp(pbv, CURVA_CAMION) / USO[uso];
+    const usd100 = (100 / (kml * L_POR_GAL)) * dz;
     const carga = num(f.carga_kg);
-    return { usd100, metodo: `camión ${clase}: ${kmgal} km/gal referencial × diésel`, por_calibrar: true, usd_ton_100: carga ? usd100 / (carga / 1000) : null,
-      nota: "Referencial por clase, por calibrar con consumo real. No incluye mantenimiento ni llantas." };
+    return { usd100, metodo: `camión PBV ${pbv} kg, uso ${uso}: ${(kml * L_POR_GAL).toFixed(1)} km/gal con carga × diésel`, por_calibrar: true, usd_ton_100: carga ? usd100 / (carga / 1000) : null,
+      nota: "Rendimiento con carga por PBV, calibrado con consumos reales de camiones de 6 t, 13 t y tracto de 48 t; los livianos están por validar. No incluye mantenimiento ni llantas." };
   }
 
   const cc = num(f.cc);
@@ -106,6 +111,7 @@ export const TOOL_COSTO = {
     properties: {
       modelos: { type: "array", minItems: 1, maxItems: 4, items: { type: "string" }, description: "Ej. ['Renault Duster', 'Hyundai Creta', 'Omoda E5']." },
       km_anio: { type: "integer", description: "Kilómetros al año del cliente. Si no lo dice, pregunta o usa el valor por defecto (indícalo)." },
+      uso: { type: "string", enum: ["urbano", "mixto", "carretera"], description: "Solo camiones y buses: tipo de recorrido (urbano consume ~20% más; carretera ~12% menos). Por defecto mixto." },
       anios: { type: "integer", description: "Años para proyectar el ahorro acumulado (por defecto 5)." },
     },
     required: ["modelos"],
@@ -126,7 +132,7 @@ export function ejecutarCosto(a, { fichas, marcasPropias, params, admin, registr
     const f = mejorVersion(AGRUPAR(r)[0]);
     if (vistos.has(f)) continue;
     vistos.add(f);
-    const e = estimar(f, params);
+    const e = estimar(f, params, { uso: a.uso });
     const nombre = `${f.marca} ${f.modelo}${f.version ? " " + f.version : ""}`;
     if (e.sin_estimado) { sin_estimado.push({ modelo: nombre, motivo: e.sin_estimado }); continue; }
     items.push({

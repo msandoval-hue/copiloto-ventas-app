@@ -42,7 +42,7 @@ Para consumo, gasto mensual, ahorro o "¿me conviene híbrido/eléctrico?", usa 
 - Pregunta o confirma los **km al año** del cliente; si no los dice, usa el valor por defecto e indícalo.
 - Si `aviso_precios` viene en la respuesta, repítelo al asesor (precios de combustible sin confirmar o desactualizados).
 - Si un modelo es PHEV, aclara que el ahorro depende de cargar la batería con regularidad.
-- En camiones y buses (`por_calibrar`), presenta la cifra como referencia por clase y recuerda que no incluye mantenimiento ni llantas.
+- En camiones y buses (`por_calibrar`), el rendimiento es CON CARGA según el PBV y se puede ajustar con `uso` (urbano consume ~20% más, carretera ~12% menos; pregúntalo si no lo dicen). Preséntalo como referencia y recuerda que no incluye mantenimiento ni llantas. Para comparar camiones, apóyate en el costo por tonelada.
 - Si nuestro modelo cuesta más en combustible, no lo ocultes: reencuádralo con otro beneficio real o con el costo total de propiedad.
 
 ## Ficha comercial

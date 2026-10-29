@@ -31,6 +31,7 @@ export async function cargarParametros(admin) {
   } catch { return {}; }
 }
 const P = (params, k) => (params?.[k]?.valor ?? null);
+export const parametro = P;
 
 // Estado de los precios para avisar al asesor (la fecha es la última vez que el admin guardó precios)
 export function estadoPrecios(params) {

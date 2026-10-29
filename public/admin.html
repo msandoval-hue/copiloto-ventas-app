@@ -56,6 +56,7 @@
   <button data-t="consultas">Consultas</button>
   <button data-t="calidad">Calidad de preguntas</button>
   <button data-t="fichas">Fichas técnicas</button>
+  <button data-t="taxis">Taxis</button>
 </nav>
 <main id="main">Cargando…</main>
 <div id="msg"></div>
@@ -168,7 +169,37 @@ async function iniciar() {
     pintar();
   });
 }
-const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, mercado: vMercado, casillero: vCasillero, consultas: vConsultas, calidad: vCalidad, fichas: vFichas })[tab]();
+
+async function vTaxis() {
+  const m = $("main"); m.innerHTML = "Cargando…";
+  let r;
+  try { r = await api("/api/admin/taxis/resumen"); } catch (e) { m.innerHTML = `<h2>Taxis</h2><p class="err">${esc(e.message)}</p>`; return; }
+  const pp = r.parametros || {};
+  const pv = (k) => pp[k]?.valor ?? "";
+  const ROT = { taxi_km_dia: "Km por día", taxi_dias_mes: "Días operados al mes", taxi_dias_mes_quito: "Días al mes en Quito (pico y placa)", taxi_seguro_pct: "Seguro anual (% del PVP)", taxi_entrada_pct: "Entrada habitual (%)", taxi_plazo_meses: "Plazo (meses)", taxi_tasa_anual: "Tasa anual (%)", taxi_factor_autonomia_real: "Factor de autonomía real sobre NEDC (supuesto)", taxi_mant_usd_km_ice: "Mantenimiento gasolina/diésel (USD por km)", taxi_ratio_mant_ice_ev: "Relación mantenimiento gasolina : eléctrico (3 = 3 a 1)", taxi_llantas_usd_km: "Llantas (USD por km, opcional)" };
+  m.innerHTML = `<h2>Taxis</h2>
+    <h3>Tipo de empresa</h3>
+    <p class="mut">Las empresas de tipo "taxis" reciben el catálogo de homologados, el análisis de operación y el prompt especializado.</p>
+    <div class="tablewrap"><table><tbody>${r.empresas.map(e => `<tr><td>${esc(e.nombre)}</td><td><select data-emp="${e.id}"><option value="concesionario" ${e.tipo !== "taxis" ? "selected" : ""}>Concesionario</option><option value="taxis" ${e.tipo === "taxis" ? "selected" : ""}>Taxis</option></select></td></tr>`).join("")}</tbody></table></div>
+    <h3>Vehículos homologados (${r.homologados.length})</h3>
+    <div class="tablewrap"><table><thead><tr><th>Marca</th><th>Modelo</th><th>Tipo</th><th>Carrocería</th><th>Precio USD</th><th>Observaciones</th></tr></thead><tbody>
+    ${r.homologados.map(h => `<tr><td>${esc(h.marca)}</td><td>${esc(h.modelo)}</td><td>${esc(h.segmento || "")}</td><td>${esc(h.carroceria || "")}</td><td>${h.precio_usd ?? "—"}</td><td class="mut">${h.observaciones ? "⚠️ " + esc(h.observaciones) : ""}</td></tr>`).join("") || '<tr><td colspan="6" class="mut">Sin datos: ejecuta el seed de homologados o importa el CSV.</td></tr>'}
+    </tbody></table></div>
+    <p><label>Importar/actualizar CSV oficial (separador ;)<input type="file" id="tx_csv" accept=".csv,text/csv"></label> <button id="tx_imp">Importar</button></p>
+    <h3>Parámetros de la operación</h3>
+    <div class="tablewrap"><table><tbody>${Object.keys(ROT).map(k => `<tr><td>${ROT[k]}</td><td><input id="tp_${k}" type="number" step="any" value="${pv(k)}"></td></tr>`).join("")}</tbody></table></div>
+    <p><button id="tx_par">Guardar parámetros</button></p>
+    <p class="mut">El mantenimiento entra al análisis cuando cargas el USD/km de gasolina (el eléctrico usa la relación 3:1). El análisis no incluye cupo/permiso ni ingresos. Los precios de combustible y kWh se editan en Fichas técnicas &gt; Costo de uso.</p>`;
+  m.querySelectorAll("select[data-emp]").forEach(s => s.onchange = () => act(async () => { await api("/api/admin/taxis/tipo", { method: "POST", body: { empresa_id: s.dataset.emp, tipo: s.value } }); aviso("Tipo de empresa guardado"); }));
+  $("tx_par").onclick = () => act(async () => { const body = {}; Object.keys(ROT).forEach(k => body[k] = $("tp_" + k).value); await api("/api/admin/taxis/parametros", { method: "POST", body }); aviso("Parámetros guardados"); });
+  $("tx_imp").onclick = () => act(async () => {
+    const f = $("tx_csv").files[0]; if (!f) throw new Error("Elige el archivo CSV");
+    const csv = await f.text();
+    const j = await api("/api/admin/taxis/importar", { method: "POST", body: { csv } });
+    aviso(`Importados ${j.importados} vehículos` + (j.por_verificar?.length ? ` (${j.por_verificar.length} con observaciones)` : "")); vTaxis();
+  });
+}
+const pintar = () => ({ usuarios: vUsuarios, empresas: vEmpresas, conocimiento: vConocimiento, mercado: vMercado, casillero: vCasillero, consultas: vConsultas, calidad: vCalidad, fichas: vFichas, taxis: vTaxis })[tab]();
 const optEmp = (sel) => '<option value="">— Sin empresa —</option>' + empresas.map(e => `<option value="${e.id}" ${e.id === sel ? "selected" : ""}>${esc(e.nombre)}</option>`).join("");
 const nomEmp = (id) => empresas.find(e => e.id === id)?.nombre || "—";
 const nomSuc = (id) => { for (const e of empresas) { const s = e.sucursales.find(x => x.id === id); if (s) return s.nombre; } return "—"; };

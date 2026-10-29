@@ -10,6 +10,8 @@ import { registrarAdmin } from "./admin.js";
 import { registrarFichasAdmin } from "./fichas_admin.js";
 import { cargarFichas, textoFichas, TOOLS_FICHAS, NOMBRES_FICHAS, ejecutarFichas } from "./fichas.js";
 import { cargarParametros, TOOL_COSTO, ejecutarCosto } from "./costouso.js";
+import { cargarTaxis, textoTaxis, TOOLS_TAXIS, NOMBRES_TAXIS, ejecutarTaxis } from "./taxis.js";
+import { registrarTaxisAdmin } from "./taxis_admin.js";
 import { fichaComercial, modelosDeLaEmpresa } from "./fichacomercial.js";
 
 const TZ = "America/Guayaquil";
@@ -40,6 +42,7 @@ function cargarBase() {
 }
 // Reglas de fichas/comparativos: se agregan siempre (aunque el conocimiento venga de la tabla "conocimiento").
 const REGLAS_FICHAS = leer("./prompts/fichas.md");
+const REGLAS_TAXIS = leer("./prompts/taxis.md");
 
 const hoyEC = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date()); // YYYY-MM-DD
 const dinero = (n) => (n == null ? "s/d" : "$" + Number(n).toLocaleString("es-EC"));
@@ -63,7 +66,7 @@ function crearContexto(admin) {
     const hoy = hoyEC();
     const q = (t) => admin.from(t).select("*").eq("empresa_id", empresaId);
     const [emp, marcas, promos, creditos, estrategias, productos, competencia] = await Promise.all([
-      admin.from("empresas").select("nombre,descripcion,tono,limite_diario_default").eq("id", empresaId).maybeSingle(),
+      admin.from("empresas").select("*").eq("id", empresaId).maybeSingle(),
       admin.from("marcas_empresa").select("marca").eq("empresa_id", empresaId),
       q("promociones_vigentes").order("marca"),
       q("creditos_vigentes"),
@@ -174,8 +177,17 @@ function crearContexto(admin) {
     const params = await cargarParametros(admin);
     const tf = textoFichas(fichas, marcasPropias);
     if (tf) L.push(tf);
+    // Empresas especializadas en taxis: catálogo de homologados + reglas del segmento
+    const tipo = e.tipo || "concesionario";
+    let taxis = [];
+    if (tipo === "taxis") {
+      taxis = await cargarTaxis(admin);
+      if (REGLAS_TAXIS) L.push("\n" + REGLAS_TAXIS);
+      const tt = textoTaxis(taxis, marcasPropias);
+      if (tt) L.push(tt);
+    }
 
-    return { fichas, marcasPropias, params, promos: promos.data || [], productos: productos.data || [], texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre, filas: filasMercado, resumenProv, empresaId, mercadoHasta: filasMercado.reduce((m, r) => Math.max(m, r.anio * 100 + r.mes), 0) || null };
+    return { fichas, marcasPropias, params, tipo, taxis, promos: promos.data || [], productos: productos.data || [], texto: L.join("\n"), limiteDefault: e.limite_diario_default ?? 20, nombre: e.nombre, filas: filasMercado, resumenProv, empresaId, mercadoHasta: filasMercado.reduce((m, r) => Math.max(m, r.anio * 100 + r.mes), 0) || null };
   }
 
   return {
@@ -364,6 +376,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
 
   registrarAdmin(app, { admin, auth, invalidarEmpresas: empresas.invalidar, invalidarBase: conocimiento.invalidar });
   registrarFichasAdmin(app, { admin, auth, invalidarFichas: empresas.invalidar });
+  registrarTaxisAdmin(app, { admin, auth, invalidar: empresas.invalidar });
   registrarCasillero(app, { admin, auth });
   registrarCalidad(app, { admin, auth });
 
@@ -416,7 +429,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
           { type: "text", text: ctx.texto, cache_control: { type: "ephemeral" } },
           { type: "text", text: bloqueVendedor(p, sucursal) + (ctx.resumenProv ? textoProvincias(ctx.resumenProv, sucursal) : "") },
         ];
-        const tools = [...(ctx.filas?.length ? [TOOL_MERCADO] : []), ...(ctx.resumenProv ? [TOOL_PROVINCIA] : []), ...(ctx.fichas?.length ? [...TOOLS_FICHAS, TOOL_COSTO] : [])];
+        const tools = [...(ctx.filas?.length ? [TOOL_MERCADO] : []), ...(ctx.resumenProv ? [TOOL_PROVINCIA] : []), ...(ctx.fichas?.length ? [...TOOLS_FICHAS, TOOL_COSTO] : []), ...(ctx.tipo === "taxis" && ctx.taxis?.length ? TOOLS_TAXIS : [])];
         const conv = [...messages];
         const RONDAS = 6; // la última ronda obliga a responder con lo que ya se consultó
         let textos = "";
@@ -439,6 +452,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
             try {
               if (c.name === TOOL_MERCADO.name) out = consultarMercado(ctx.filas, c.input || {});
               else if (c.name === TOOL_PROVINCIA.name && ctx.resumenProv) out = await consultarMercadoProvincia(admin, ctx.empresaId, c.input || {}, ctx.resumenProv.hasta);
+              else if (NOMBRES_TAXIS.has(c.name) && ctx.taxis?.length) out = ejecutarTaxis(c.name, c.input || {}, { taxis: ctx.taxis, fichas: ctx.fichas, marcasPropias: ctx.marcasPropias, params: ctx.params });
               else if (c.name === TOOL_COSTO.name && ctx.fichas?.length) out = ejecutarCosto(c.input || {}, { fichas: ctx.fichas, marcasPropias: ctx.marcasPropias, params: ctx.params });
               else if (NOMBRES_FICHAS.has(c.name) && ctx.fichas?.length) out = await ejecutarFichas(c.name, c.input || {}, { fichas: ctx.fichas, filasMercado: ctx.filas || [], marcasPropias: ctx.marcasPropias, admin, empresaId: ctx.empresaId });
               else out = { error: "Herramienta desconocida" };

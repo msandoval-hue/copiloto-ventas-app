@@ -15,6 +15,16 @@ const entero = (v) => {
   return Number.isInteger(n) && n >= 0 ? n : NaN;
 };
 
+// "a@x.com, b@y.com" -> lista limpia (minúsculas, sin repetidos, máx. 5). Devuelve {lista} o {error}.
+function parsearCorreos(v) {
+  const partes = (Array.isArray(v) ? v : String(v ?? "").split(/[,;\s]+/)).map((x) => String(x).trim().toLowerCase()).filter(Boolean);
+  const lista = [...new Set(partes)];
+  if (lista.length > 5) return { error: "Máximo 5 correos de jefe por asesor" };
+  const malo = lista.find((x) => x.length > 200 || !EMAIL.test(x));
+  if (malo) return { error: `Correo de jefe inválido: ${malo}` };
+  return { lista };
+}
+
 // Archivos base del repositorio que se pueden importar a la base de datos
 const ARCHIVOS = [
   ["copiloto", "Cerebro del copiloto (rol, flujo y reglas)", 10],
@@ -38,7 +48,7 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
   app.get("/api/admin/usuarios", ...A, async (_req, res) => {
     try {
       const [p, u, uso] = await Promise.all([
-        admin.from("perfiles").select("id,rol,nombre,descripcion,telefono,empresa_id,sucursal_id,limite_diario,activo,created_at").order("nombre"),
+        admin.from("perfiles").select("id,rol,nombre,descripcion,telefono,empresa_id,sucursal_id,limite_diario,activo,created_at,notif_vendedor,notif_jefe,jefe_emails,notif_hora").order("nombre"),
         admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
         admin.from("uso_diario").select("vendedor_id,consultas,bloqueadas").eq("fecha", hoyEC()),
       ]);
@@ -96,6 +106,18 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
       c.telefono = t;
     }
     if (b.activo !== undefined) c.activo = !!b.activo;
+    if (b.notif_vendedor !== undefined) c.notif_vendedor = !!b.notif_vendedor;
+    if (b.notif_jefe !== undefined) c.notif_jefe = !!b.notif_jefe;
+    if (b.notif_hora !== undefined) {
+      const h = str(String(b.notif_hora ?? ""), 5);
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(h || "")) return { error: "La hora de envío debe tener formato HH:MM (por ejemplo 18:30)" };
+      c.notif_hora = h;
+    }
+    if (b.jefe_emails !== undefined) {
+      const r = parsearCorreos(b.jefe_emails);
+      if (r.error) return { error: r.error };
+      c.jefe_emails = r.lista;
+    }
     return { cambios: c };
   }
 
@@ -111,6 +133,7 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
       const c = v.cambios;
       if (!c.nombre) return mal(res, "El nombre es obligatorio");
       if (c.rol === "vendedor" && !c.empresa_id) return mal(res, "Un vendedor necesita una empresa asignada");
+      if (c.notif_jefe && !(c.jefe_emails || []).length) return mal(res, "Para avisar al jefe escribe al menos un correo de jefe de ventas");
 
       const { data: creado, error: e1 } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
       if (e1 || !creado?.user) {
@@ -132,7 +155,7 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
     try {
       const id = req.params.id;
       const b = req.body || {};
-      const { data: actual } = await admin.from("perfiles").select("id,empresa_id,rol").eq("id", id).maybeSingle();
+      const { data: actual } = await admin.from("perfiles").select("id,empresa_id,rol,notif_jefe,jefe_emails").eq("id", id).maybeSingle();
       if (!actual) return res.status(404).json({ error: "Usuario no encontrado" });
       if (id === req.perfil.id && ((b.rol !== undefined && b.rol !== "admin") || b.activo === false))
         return mal(res, "No puedes quitarte el rol de administrador ni desactivarte a ti mismo");
@@ -143,6 +166,9 @@ export function registrarAdmin(app, { admin, auth, invalidarEmpresas, invalidarB
       const rolFinal = v.cambios.rol ?? actual.rol;
       const empFinal = v.cambios.empresa_id !== undefined ? v.cambios.empresa_id : actual.empresa_id;
       if (rolFinal === "vendedor" && !empFinal) return mal(res, "Un vendedor necesita una empresa asignada");
+      const jefeFinal = v.cambios.notif_jefe ?? actual.notif_jefe;
+      const correosFinal = v.cambios.jefe_emails ?? actual.jefe_emails ?? [];
+      if (jefeFinal && !correosFinal.length) return mal(res, "Para avisar al jefe escribe al menos un correo de jefe de ventas");
       const cambiaClave = b.password !== undefined && b.password !== "";
       if (cambiaClave && (typeof b.password !== "string" || b.password.length < 8)) return mal(res, "La clave nueva debe tener al menos 8 caracteres");
       if (Object.keys(v.cambios).length) {

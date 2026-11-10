@@ -236,15 +236,26 @@ function formUsuario(u) {
       <label>Límite de consultas por día<input id="u_lim" type="number" min="0" placeholder="vacío = el de la empresa" value="${u.limite_diario ?? ""}"></label>
       <label>Estado<select id="u_act"><option value="1" ${u.activo ? "selected" : ""}>Activo</option><option value="0" ${!u.activo ? "selected" : ""}>Inactivo (sin acceso)</option></select></label>
     </div>
+    <div class="panel" style="margin-top:10px;background:#f6f8fc">
+      <h3 style="margin:0 0 6px">Notificación diaria por correo</h3>
+      <div class="grid">
+        <label style="flex-direction:row;align-items:center;gap:8px;font-size:13px;color:inherit"><input type="checkbox" id="u_nv" style="width:auto" ${u.notif_vendedor ? "checked" : ""}> Enviar al asesor (a su correo de login${u.email ? ": " + esc(u.email) : ""})</label>
+        <label style="flex-direction:row;align-items:center;gap:8px;font-size:13px;color:inherit"><input type="checkbox" id="u_nj" style="width:auto" ${u.notif_jefe ? "checked" : ""}> Enviar resumen al jefe de ventas</label>
+        <label>Hora de envío al asesor (hora de Ecuador)<input id="u_hora" type="time" value="${esc(String(u.notif_hora || "18:30").slice(0, 5))}"></label>
+      </div>
+      <label id="u_jefe_box" style="margin-top:8px;${u.notif_jefe ? "" : "display:none"}">Correo(s) del jefe de ventas (varios separados por coma, máx. 5)<input id="u_jefe" value="${esc((u.jefe_emails || []).join(", "))}" placeholder="jefe@empresa.com, otro@empresa.com"></label>
+    </div>
     <label style="margin-top:10px">Descripción del vendedor (personalidad, forma de gestionar, fortalezas y hábitos a mejorar)<textarea id="u_desc" rows="4" maxlength="1500">${esc(u.descripcion || "")}</textarea></label>
     <div class="row"><button class="p" id="u_ok">Guardar</button><button class="s" id="u_no">Cancelar</button></div></div>`;
   const pintarSuc = () => { const e = empresas.find(x => x.id === $("u_emp").value);
     $("u_suc").innerHTML = '<option value="">— Sin sucursal —</option>' + (e ? e.sucursales.map(s => `<option value="${s.id}" ${s.id === u.sucursal_id ? "selected" : ""}>${esc(s.nombre)} (${esc(s.ciudad)})</option>`).join("") : ""); };
+  $("u_nj").onchange = () => { $("u_jefe_box").style.display = $("u_nj").checked ? "" : "none"; if ($("u_nj").checked) $("u_jefe").focus(); };
   pintarSuc(); $("u_emp").onchange = () => { u.sucursal_id = null; pintarSuc(); };
   $("u_no").onclick = () => $("formU").innerHTML = "";
   $("u_ok").onclick = () => act(async () => {
     const body = { nombre: $("u_nombre").value, rol: $("u_rol").value, empresa_id: $("u_emp").value || null, sucursal_id: $("u_suc").value || null,
-      limite_diario: $("u_lim").value === "" ? null : Number($("u_lim").value), activo: $("u_act").value === "1", descripcion: $("u_desc").value, telefono: $("u_tel").value };
+      limite_diario: $("u_lim").value === "" ? null : Number($("u_lim").value), activo: $("u_act").value === "1", descripcion: $("u_desc").value, telefono: $("u_tel").value,
+      notif_vendedor: $("u_nv").checked, notif_jefe: $("u_nj").checked, notif_hora: $("u_hora").value || "18:30", jefe_emails: $("u_nj").checked ? $("u_jefe").value : "" };
     if (nuevo) { body.email = $("u_email").value; body.password = $("u_pass").value; await api("/api/admin/usuarios", { method: "POST", body }); aviso("Usuario creado ✓"); }
     else { if ($("u_pass").value) body.password = $("u_pass").value; await api("/api/admin/usuarios/" + u.id, { method: "PATCH", body }); aviso("Cambios guardados ✓"); }
     vUsuarios();

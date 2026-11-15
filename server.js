@@ -2,6 +2,8 @@ import { textoMercado, TOOL_MERCADO, consultarMercado, TOOL_PROVINCIA, consultar
 import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import { registrarCalidad, calificarYGuardar } from "./calidad.js";
+import { registrarNotificaciones } from "./notificaciones.js";
+import { crearAuthIntegracion } from "./integracion.js";
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "fs";
 import { pathToFileURL } from "url";
@@ -379,8 +381,9 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
   registrarTaxisAdmin(app, { admin, auth, invalidar: empresas.invalidar });
   registrarCasillero(app, { admin, auth });
   registrarCalidad(app, { admin, auth });
+  registrarNotificaciones(app, { admin, anthropic, modelo: process.env.CALIFICADOR_MODEL || "claude-haiku-4-5-20251001" });
 
-  app.post("/api/chat", auth, async (req, res) => {
+  const chatHandler = async (req, res) => {
     const p = req.perfil;
     try {
       const empresaId = empresaDe(p, req.body?.empresa_id);
@@ -487,7 +490,10 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
       console.error(e);
       res.status(500).json({ error: "Error del agente, intenta de nuevo" });
     }
-  });
+  };
+  app.post("/api/chat", auth, chatHandler);
+  // Apps externas (AppSheet): misma lógica del chat, autenticada con clave de integración + correo del asesor
+  app.post("/api/integracion/chat", crearAuthIntegracion({ admin }), chatHandler);
 
   app.post("/api/feedback", auth, async (req, res) => {
     const { log_id, util } = req.body || {};

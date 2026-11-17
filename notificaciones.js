@@ -83,7 +83,17 @@ function htmlAsesor(nombre, r, texto, notifJefe) {
 <td style="padding:8px 14px;background:#eef2fb;border-radius:8px;text-align:center"><div style="font-size:22px;font-weight:bold;color:${NAVY}">${r.negocios}</div><div style="font-size:11px;color:#555">negocios</div></td><td width="8"></td>
 <td style="padding:8px 14px;background:#eef2fb;border-radius:8px;text-align:center"><div style="font-size:22px;font-weight:bold;color:${NAVY}">${r.consultas}</div><div style="font-size:11px;color:#555">consultas</div></td>${r.promedio != null ? `<td width="8"></td><td style="padding:8px 14px;background:#eef2fb;border-radius:8px;text-align:center"><div style="font-size:22px;font-weight:bold;color:${NAVY}">${r.promedio}</div><div style="font-size:11px;color:#555">termómetro · ${esc(r.nivel)}</div></td>` : ""}</tr></table>` : "";
   const pie = `Este resumen te llega porque tu administrador activó la notificación diaria.${notifJefe ? " Tu jefe de ventas también recibe un resumen del equipo." : ""} Si no quieres recibirlo, pídele que lo desactive.`;
-  return marco(r.uso ? "Tu cierre del día" : "Hoy no me usaste", `<p style="margin:0 0 12px">Hola ${esc(nombre)},</p>${kpis}${parrafos(texto)}<p style="margin:14px 0 0">Marcelo · Copiloto de Ventas</p>`, pie);
+  if (!r.uso) {
+    // Mensaje fijo (sin IA) para quien no usó el copiloto
+    const p = (t) => `<p style="margin:0 0 12px">${t}</p>`;
+    const cuerpo = p(`Hola ${esc(nombre)}, ¿cómo vas?`) + p("Pasaba a saludarte. Hoy estuve esperándote por si me necesitabas.") +
+      p("Anímate, úsame mañana con tu primer cliente del día y yo te ayudo a dejar listo el mensaje de WhatsApp, la confirmación de la cita o esa reactivación que está pendiente.") +
+      p("Recuerda que conozco de tus productos y de la competencia.") +
+      p("Tú hablas con el cliente, yo te hago el resto más fácil y rápido.") +
+      `<p style="margin:14px 0 0">Tu Copiloto de Ventas</p>`;
+    return marco("Hoy estuve esperándote", cuerpo, pie);
+  }
+  return marco("Tu cierre del día", `<p style="margin:0 0 12px">Hola ${esc(nombre)},</p>${kpis}${parrafos(texto)}<p style="margin:14px 0 0">Marcelo · Copiloto de Ventas</p>`, pie);
 }
 
 function htmlJefe(empresa, fecha, filas, texto) {
@@ -167,8 +177,8 @@ export async function ejecutarResumenes({ admin, anthropic, modelo, transporte, 
     if (!r.uso && !prueba && !forzar && p.notif_ultimo_envio && diasEntre(p.notif_ultimo_envio, ahora.hoy) < 2) continue;
     if (prueba && enviados >= limite) break;
     try {
-      const texto = await redactarAsesor(anthropic, modelo, (p.nombre || "").split(" ")[0] || "asesor", r);
-      const asunto = r.uso ? `Tu cierre del día: ${r.negocios} negocio(s) trabajado(s)` : "Hoy no me usaste, estuve pendiente";
+      const texto = r.uso ? await redactarAsesor(anthropic, modelo, (p.nombre || "").split(" ")[0] || "asesor", r) : "";
+      const asunto = r.uso ? `Tu cierre del día: ${r.negocios} negocio(s) trabajado(s)` : "Hoy estuve esperándote";
       await tr.enviar({ to: prueba ? destinoPrueba : email, subject: (prueba ? `[PRUEBA → ${email}] ` : "") + asunto, html: htmlAsesor((p.nombre || "").split(" ")[0] || "", r, texto, p.notif_jefe) });
       if (!prueba) await admin.from("perfiles").update({ notif_ultimo_envio: ahora.hoy }).eq("id", p.id);
       enviados++;

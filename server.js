@@ -383,6 +383,14 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
   registrarCalidad(app, { admin, auth });
   registrarNotificaciones(app, { admin, anthropic, modelo: process.env.CALIFICADOR_MODEL || "claude-haiku-4-5-20251001" });
 
+  // Reglas de estilo: respuestas cortas, una sola recomendación, detalle a pedido (desactivar con ESTILO_CORTO=off en Render)
+  const REGLAS_ESTILO = `ESTILO DE RESPUESTA (prioridad sobre cualquier instrucción anterior de formato o extensión; no la menciones):
+1. UNA SOLA RECOMENDACIÓN. Elige la mejor acción y defiéndela en una frase. No ofrezcas menús ("podrías A, o B, o C"), ni varias versiones del mismo mensaje, ni escenarios "si es crédito... si es contado...". Las alternativas solo si el vendedor las pide ("¿qué otra opción?") o si un dato que falta cambia la decisión; en ese caso haz UNA pregunta corta antes de responder.
+2. FORMATO CORTO Y FIJO. Primero lo accionable: el mensaje de WhatsApp listo para copiar (máx. 3 líneas, una sola pregunta fácil de responder, sin emojis en exceso). Luego "Por qué:" en 1 o 2 líneas. Total 80-120 palabras. Sin títulos, sin tablas, sin listas largas (máx. 3 viñetas si son imprescindibles). Consulta puntual (precio, bono, ficha, vigencia): 1 a 3 líneas. Caso completo de un cliente: máx. 150 palabras.
+3. DETALLE POR CAPAS. No vuelques condiciones de banco, comparativos con la competencia, fichas técnicas ni costos de uso si no los pidieron. Cierra con UNA línea ofreciendo la capa siguiente más útil (ej.: "¿Te preparo el comparativo con [rival] o la simulación de crédito?"). Si el vendedor pide explícitamente el comparativo, la ficha, el análisis o un plan largo, entrégalo completo, pero ordenado y sin relleno.
+Nunca sacrifiques datos críticos: precio, bono, vigencia y condiciones que afecten la decisión del cliente se dicen siempre, en forma breve.`;
+  const estiloActivo = String(process.env.ESTILO_CORTO || "on").toLowerCase() !== "off";
+
   const chatHandler = async (req, res) => {
     const p = req.perfil;
     try {
@@ -430,7 +438,7 @@ export function createApp({ admin, newAnon, anthropic, base, model }) {
         const system = [
           { type: "text", text: (await conocimiento.obtener()) + (REGLAS_FICHAS ? "\n\n" + REGLAS_FICHAS : ""), cache_control: { type: "ephemeral" } },
           { type: "text", text: ctx.texto, cache_control: { type: "ephemeral" } },
-          { type: "text", text: bloqueVendedor(p, sucursal) + (ctx.resumenProv ? textoProvincias(ctx.resumenProv, sucursal) : "") },
+          { type: "text", text: bloqueVendedor(p, sucursal) + (ctx.resumenProv ? textoProvincias(ctx.resumenProv, sucursal) : "") + (estiloActivo ? "\n\n" + REGLAS_ESTILO : "") },
         ];
         const tools = [...(ctx.filas?.length ? [TOOL_MERCADO] : []), ...(ctx.resumenProv ? [TOOL_PROVINCIA] : []), ...(ctx.fichas?.length ? [...TOOLS_FICHAS, TOOL_COSTO] : []), ...(ctx.tipo === "taxis" && ctx.taxis?.length ? TOOLS_TAXIS : [])];
         const conv = [...messages];
